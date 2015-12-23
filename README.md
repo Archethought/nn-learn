@@ -17,7 +17,7 @@ Clone [this repo](https://github.com/Archethought/nn-learn). Then setup a virtua
 cd nn-learn
 virtualenv venv
 . ./venv/bin/activate
-pip install -r requirements
+pip install -r requirements.txt
 ```
 
 N.B. this requirements.txt is for a small python data science sandbox, it has other tools you might not need. Delete what you don't want, some of this stuff takes time to install. You will need matplotlib for sure.
