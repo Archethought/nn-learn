@@ -3,18 +3,19 @@ Modded code from I Am Trask to learn neural nets with additional demo code to vi
 
 ##Setup
 Assumes you have python 2.7 with pip and virtualenv. 
-Learn more about installing these tools [Mac here](https://hackercodex.com/guide/python-development-environment-on-mac-osx/)
+Learn more about installing these tools for Mac [here](https://hackercodex.com/guide/python-development-environment-on-mac-osx/).
 
 On Ubuntu linux:
 ```
-sudo apt-get install python-virtualenv
+sudo apt-get install build-essential git
+sudo apt-get install python-dev python-virtualenv
 ```
 
-Clone this repo and cd into it. Then setup a virtual environment, source it and install the dependencies:
+Clone [this repo](https://github.com/Archethought/nn-learn). Then setup a virtual environment, source it and install the dependencies:
 
 ```
+cd nn-learn
 virtualenv venv
-. ./venv/bin/activate
 pip install -r requirements
 ```
 
