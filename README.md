@@ -16,6 +16,7 @@ Clone [this repo](https://github.com/Archethought/nn-learn). Then setup a virtua
 ```
 cd nn-learn
 virtualenv venv
+. ./venv/bin/activate
 pip install -r requirements
 ```
 
