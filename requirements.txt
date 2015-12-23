@@ -1,4 +1,6 @@
 Cython==0.23.4
+numpy==1.10.1
+scipy==0.16.1
 Faker==0.0.4
 Jinja2==2.8
 MarkupSafe==0.23
@@ -7,18 +9,15 @@ bz2file==0.98
 cycler==0.9.0
 fake-factory==0.5.3
 gensim==0.12.3
-hmmlearn==0.1.1
 httpretty==0.8.6
 matplotlib==1.5.0
 mpld3==0.2
-numpy==1.10.1
 pyparsing==2.0.5
 python-dateutil==2.4.2
 pytz==2015.7
 requests==2.8.1
 scikit-learn==0.17
-scipy==0.16.1
 six==1.10.0
 smart-open==1.3.0
-tsne==0.1.5
 wsgiref==0.1.2
+hmmlearn==0.1.1
