@@ -1,5 +1,5 @@
 # nn-learn
-Modded code from I Am Trask to learn neural nets with additional demo code to visualize in real time
+Modded code from [I Am Trask](http://iamtrask.github.io/2015/07/12/basic-python-network/) and [Python Programming](https://pythonprogramming.net/python-matplotlib-live-updating-graphs/) to learn neural nets with additional demo code to visualize in real time
 
 ##Setup
 Assumes you have python 2.7 with pip and virtualenv. 
