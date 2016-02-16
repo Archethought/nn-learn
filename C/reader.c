@@ -39,7 +39,7 @@ struct data read(char* images, char* labels)
 
    fread(&magic, 4,1, labelfile); magic = bitswap(magic);
    fread(&count, 4,1, labelfile); count = bitswap(count);
-   printf("%d,%d\n", magic, count);
+   //printf("%d,%d\n", magic, count);
    if (magic != 2049)
    {
       printf("file format error: %d\n", magic);
@@ -75,9 +75,9 @@ struct data read(char* images, char* labels)
       fclose(imagefile);
       return Result;
    }
-   printf("%d,%d\n", imagic, imcount);
-   printf("%d,%d\n", height, width);
-   printf("%d\n", imcount*height*width);
+   //printf("%d,%d\n", imagic, imcount);
+   //printf("%d,%d\n", height, width);
+   //printf("%d\n", imcount*height*width);
 
    float*** image = malloc(sizeof(float**)*imcount);
    for (int i=0; i<imcount; ++i)
