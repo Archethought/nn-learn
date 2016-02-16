@@ -14,9 +14,9 @@ float dsigmoid(float x)
 
 int main(int argc, char** argv)
 {
-   if (argc != 6)
+   if (argc != 7)
    {
-      printf("usage: run trainingImages trainingLabels testImages testLabels iterations\n");
+      printf("usage: run trainingImages trainingLabels testImages testLabels iterations alpha\n");
       return 2;
    }
    struct data Data = read(argv[1], argv[2]);      //training data
@@ -29,6 +29,7 @@ int main(int argc, char** argv)
    float weights2[100][10];                        //middle to output layer weights
    float dweights2[100][10];                        //middle to output layer weights
    float outs[10];                                 //Output layer
+   float alpha = atof(argv[6]);
 
    //Initialize weights to random values
    printf("randomizing initial weights\n");
@@ -143,7 +144,7 @@ int main(int argc, char** argv)
          {
             for (int k=0; k < 100; ++k)
             {
-               weights1[i][j][k] += dweights1[i][j][k];
+               weights1[i][j][k] += alpha * dweights1[i][j][k];
                //printf("%f ", dweights1[i][j][k]);
                dweights1[i][j][k] = 0.0;
             }
@@ -154,7 +155,7 @@ int main(int argc, char** argv)
       {
          for (int j=0; j < 10; ++j)
          {
-            weights2[i][j] += dweights2[i][j];
+            weights2[i][j] += alpha * dweights2[i][j];
             //printf("%f ", dweights2[i][j]);
             dweights2[i][j] = 0.0;
          }
