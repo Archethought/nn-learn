@@ -60,7 +60,7 @@ int main(int argc, char** argv)
    int iterations = atoi(argv[5]);
    for (int iter=0; iter<iterations; ++iter)
    {
-      for (int i=0; i < Data.count/10; ++i)
+      for (int i=0; i < Data.count; ++i)
       {
          //reset layer states
          input = Data.Image[i];

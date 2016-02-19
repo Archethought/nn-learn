@@ -18,8 +18,8 @@ void ferr(int code)
 
 struct data
 {
-   float** Label;
-   float*** Image;
+   float* Label;
+   float* Image;
    int count, height, width;
 };
 
@@ -52,17 +52,16 @@ struct data read(char* images, char* labels)
       return Result;
    }
    unsigned char *label = (unsigned char*)malloc(sizeof(unsigned char)*count);
-   float **Label = (float**)malloc(sizeof(float*)*count);
+   float *Label = (float*)malloc(sizeof(float)*10*count);
    for (int i=0; i<count; ++i)
    {
       ferr(fread(&label[i], 1,1, labelfile));
-      Label[i] = (float*)malloc(sizeof(float)*10);
       for (int j=0; j < 10; ++j)
       {
          if (label[i] == j)
-            Label[i][j] = 1.0;
+            Label[i*10 + j] = 1.0;
          else
-            Label[i][j] = 0.0;
+            Label[i*10 + j] = 0.0;
       }
    }
    fclose(labelfile);
@@ -84,13 +83,7 @@ struct data read(char* images, char* labels)
    //printf("%d,%d\n", height, width);
    //printf("%d\n", imcount*height*width);
 
-   float*** image = (float***)malloc(sizeof(float**)*imcount);
-   for (int i=0; i<imcount; ++i)
-   {
-      image[i] = (float**)malloc(sizeof(float*)*height);
-      for (int j=0; j<height; ++j)
-         image[i][j] = (float*)malloc(sizeof(float)*width);
-   }
+   float* image = (float*)malloc(sizeof(float)*imcount*height*width);
    unsigned char tmp;
 
    for (int i=0; i<imcount; ++i)
@@ -100,7 +93,7 @@ struct data read(char* images, char* labels)
          for (int k=0; k<width; ++k)
          {
             ferr(fread(&tmp, 1,1, imagefile));
-            image[i][j][k] = (float)tmp/256.0;
+            image[i*height*width + j*width + k] = (float)tmp/256.0;
          }
       }
    }
