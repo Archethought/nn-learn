@@ -10,7 +10,7 @@ neuralnet.o:neuralnet.c reader.c
 
 nn.o:nn.cu reader.c
 	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $<
-NN.o:NN.cu reader_.c
+NN_.o:NN_.cu reader_.c
 	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $<
 
 #  link
@@ -19,7 +19,7 @@ run:neuralnet.o
 
 grun:nn.o
 	nvcc -ccbin gcc -m64 $(ARCH) -g -G -O3 -o $@ $^ $(LIBS)
-srun:NN.o
+srun:NN_.o
 	nvcc -ccbin gcc -m64 $(ARCH) -g -G -O3 -o $@ $^ $(LIBS)
 
 #  Clean
