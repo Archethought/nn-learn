@@ -21,7 +21,7 @@ void err(cudaError_t returnVal)
    }
 }
 
-__global__ void train(float* in, float* label, float* syn1, float* syn2, float* dsyn1, float* dsyn2, float alpha)
+__global__ void train(const float* in, const float* label, const float* syn1, const float* syn2, float* dsyn1, float* dsyn2, const float alpha)
 {
    int i = blockDim.x*blockIdx.x + threadIdx.x;
 
@@ -79,7 +79,7 @@ __global__ void train(float* in, float* label, float* syn1, float* syn2, float* 
          for (int k=0; k < 10; ++k)
          {
             delta2[k] = (label[i*10 + k] - outs[k]) * outs[k]*(1.0-outs[k]);
-            atomicAdd(&dsyn2[j*10 + k], delta2[k] * layer1[j] / (60000.0));
+            atomicAdd(&dsyn2[j*10 + k], delta2[k] * alpha * layer1[j] / (gridDim.x*blockDim.x));
          }
       }
       //middle to input
@@ -100,7 +100,7 @@ __global__ void train(float* in, float* label, float* syn1, float* syn2, float* 
                for (int l=0; l < 10; ++l)
                   error1[k] += delta2[l] * syn2[k*10 * l];
                delta1[k] = error1[k] * layer1[k]*(1.0-layer1[k]);
-               atomicAdd(&dsyn1[h*28*100 + j*100 + k], alpha * (delta1[k] * in[i*28*28 + h*28 + j] / (60000.0)));
+               atomicAdd(&dsyn1[h*28*100 + j*100 + k], alpha * (delta1[k] * in[i*28*28 + h*28 + j] / (gridDim.x*blockDim.x)));
             }
          }
       }
@@ -195,44 +195,77 @@ int main(int argc, char** argv)
    err(cudaMemcpy(d_syn2, weights2, 10*100*sizeof(float), cudaMemcpyHostToDevice));
    err(cudaMemcpy(d_dsyn2, d_syn2, 10*100*sizeof(float), cudaMemcpyDeviceToDevice));
 
+   //float* testI = (float*)malloc(28*28*60000*sizeof(float));
+   //float* testL = (float*)malloc(10*60000*sizeof(float));
+   //bool potato = false;
+   //err(cudaMemcpy(testI, d_in, 28*28*60000*sizeof(float), cudaMemcpyDeviceToHost));
+   //err(cudaMemcpy(testL, d_label, 10*60000*sizeof(float), cudaMemcpyDeviceToHost));
+   //for (int i=0; i < 28*28*60000; ++i)
+   //{
+   //   if (testI[i] > 1.0 || testI[i] < 0.0)
+   //      potato = true;
+   //}
+   //if (potato)
+   //   printf("error in the input data\n");
+   //potato = false;
+   //for (int i=0; i < 10*60000; ++i)
+   //{
+   //   if (testL[i] > 1.0 || testL[i] < 0.0)
+   //      potato = true;
+   //}
+   //if (potato)
+   //   printf("error in the label data\n");
+   //potato = false;
 
    //train
    //printf("training\n");
    int iterations = atoi(argv[5]);
    for (int iter=0; iter<iterations; ++iter)
    {
-      //err(cudaMemcpy(d_syn1,  weights1,  sizeof(float)*28*28*100, cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_syn2,  weights2,  sizeof(float)*100*10,    cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_dsyn1, dweights1, sizeof(float)*28*28*100, cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_dsyn2, dweights2, sizeof(float)*100*10,    cudaMemcpyHostToDevice));
-      train<<<480,   125>>>(d_in, d_label, d_syn1, d_syn2, d_dsyn1, d_dsyn2, alpha);
-      //apply<<<28*28, 100>>>(d_syn1, d_dsyn1, 28*28*100);
-      //apply<<<10,    100>>>(d_syn2, d_dsyn2, 1000);
+      train<<<48,   125>>>(&d_in[6000*(iter%10)], &d_label[6000*(iter%10)], d_syn1, d_syn2, d_dsyn1, d_dsyn2, alpha);
       err(cudaMemcpy(d_syn1, d_dsyn1, sizeof(float)*28*28*100, cudaMemcpyDeviceToDevice));
       err(cudaMemcpy(d_syn2, d_dsyn2, sizeof(float)*100*10,    cudaMemcpyDeviceToDevice));
 
-      //adjust synapse weights
-      //for (int i=0; i < 28; ++i)
+      //err(cudaMemcpy(testI, d_in, 28*28*60000*sizeof(float), cudaMemcpyDeviceToHost));
+      //err(cudaMemcpy(testL, d_label, 10*60000*sizeof(float), cudaMemcpyDeviceToHost));
+      //err(cudaMemcpy(weights1, d_syn1, 28*28*100*sizeof(float), cudaMemcpyDeviceToHost));
+      //err(cudaMemcpy(weights2, d_syn2, 10*100*sizeof(float), cudaMemcpyDeviceToHost));
+      //for (int i=0; i < 28*28*60000; ++i)
       //{
-      //   for (int j=0; j < 28; ++j)
+      //   if (testI[i] > 1.0 || testI[i] < 0.0 || isnan(testI[i]))
+      //      potato = true;
+      //}
+      //if (potato)
+      //   printf("error in the input data\n");
+      //potato = false;
+      //for (int i=0; i < 10*60000; ++i)
+      //{
+      //   if (testL[i] > 1.0 || testL[i] < 0.0 || isnan(testL[i]))
+      //      potato = true;
+      //}
+      //if (potato)
+      //   printf("error in the label data\n");
+      //potato = false;
+      //for (int i=0; i < 28*28*100; ++i)
+      //{
+      //   if (isnan(weights1[i]))
       //   {
-      //      for (int k=0; k < 100; ++k)
-      //      {
-      //         weights1[i][j][k] += alpha * dweights1[i][j][k];
-      //         dweights1[i][j][k] = 0.0;
-      //      }
+      //      potato = true;
+      //      printf("syn1: %d: %f\n", i, weights1[i]);
       //   }
       //}
-      //for (int i=0; i < 100; ++i)
+      //potato = false;
+      //for (int i=0; i < 10*100; ++i)
       //{
-      //   for (int j=0; j < 10; ++j)
+      //   if (isnan(weights2[i]))
       //   {
-      //      weights2[i][j] += alpha * dweights2[i][j];
-      //      dweights2[i][j] = 0.0;
+      //      potato = true;
+      //      printf("syn1: %d: %f\n", i, weights2[i]);
       //   }
       //}
-      //printf("%d\n", iter);
    }
+   //free(testI);
+   //free(testL);
    err(cudaMemcpy(weights1, d_syn1, sizeof(float)*28*28*100, cudaMemcpyDeviceToHost));
    err(cudaMemcpy(weights2, d_syn2, sizeof(float)*100*10,    cudaMemcpyDeviceToHost));
 
@@ -296,7 +329,7 @@ int main(int argc, char** argv)
    }
    //printf("Error: %f\n", error);
    error /= Test.count;
-   printf("Error: %f percent\n", error*100.0);
+   printf("Error: %f %%\n", error*100.0);
 
    //clean up data arrays
    //for (int i=0; i<60000; ++i)
