@@ -1,5 +1,6 @@
 #include "reader_.c"
 #include <math.h>
+#include <time.h>
 
 
 float sigmoid(float x)
@@ -166,7 +167,7 @@ int main(int argc, char** argv)
 
    //Initialize weights to random values
    //printf("randomizing initial weights\n");
-   srand(112992); //make the random values the same each time
+   srand(1); //make the random values the same each time
    for (int i=0; i < 28; ++i)
    {
       for (int j=0; j < 28; ++j)
@@ -187,6 +188,7 @@ int main(int argc, char** argv)
       }
    }
 
+   clock_t start = clock();
 
    err(cudaMemcpy(d_in, Data.Image, 28*28*60000*sizeof(float), cudaMemcpyHostToDevice));
    err(cudaMemcpy(d_label, Data.Label, 10*60000*sizeof(float), cudaMemcpyHostToDevice));
@@ -220,9 +222,20 @@ int main(int argc, char** argv)
    //train
    //printf("training\n");
    int iterations = atoi(argv[5]);
+   float al = 1.0;
    for (int iter=0; iter<iterations; ++iter)
    {
-      train<<<48,   125>>>(&d_in[6000*(iter%10)], &d_label[6000*(iter%10)], d_syn1, d_syn2, d_dsyn1, d_dsyn2, alpha);
+      if (iter < 8)
+         al = alpha*20.0;
+      else if (iter < 16)
+         al = alpha*10.0;
+      else if (iter < 32)
+         al = alpha*5.0;
+      else if (iter < 64)
+         al = alpha*2.0;
+      else
+         al = alpha;
+      train<<<48,   125>>>(&d_in[6000*(iter%10)], &d_label[6000*(iter%10)], d_syn1, d_syn2, d_dsyn1, d_dsyn2, al);
       err(cudaMemcpy(d_syn1, d_dsyn1, sizeof(float)*28*28*100, cudaMemcpyDeviceToDevice));
       err(cudaMemcpy(d_syn2, d_dsyn2, sizeof(float)*100*10,    cudaMemcpyDeviceToDevice));
 
@@ -268,6 +281,10 @@ int main(int argc, char** argv)
    //free(testL);
    err(cudaMemcpy(weights1, d_syn1, sizeof(float)*28*28*100, cudaMemcpyDeviceToHost));
    err(cudaMemcpy(weights2, d_syn2, sizeof(float)*100*10,    cudaMemcpyDeviceToHost));
+
+   clock_t diff = clock() - start;
+   diff = diff*1000/CLOCKS_PER_SEC;
+   printf("computation time: %ld.%ld\n", diff/1000, diff%1000);
 
    //test
    //printf("testing\n");
