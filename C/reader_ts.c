@@ -126,6 +126,7 @@ struct data read_this(const char* infile, const char* label)
       fftw_execute(plan);
 
       //post-processing on out[]
+#pragma omp parallel for
       for (int j=0; j < segment_length; ++j)
       {
          out[j][0] *= 2.0/segment_length;
@@ -135,6 +136,7 @@ struct data read_this(const char* infile, const char* label)
       }
 
       //sum up and copy to the next segment of Result.Image[]
+#pragma omp parallel for
       for (int j=0; j < fft_depth; ++j)
       {
          if (i*fft_depth + j < fft_depth*(info.frames/segment_length))
