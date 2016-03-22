@@ -1,14 +1,29 @@
 #include "reader_ts.c"
 
 
-float sigmoid(float x)
+__device__ float sigmoid(float x)
 {
-   return 1/(1+exp(-x));
+   return 1.0/(1.0+__expf(-x));
 }
 
-float dsigmoid(float x)
+__device__ float dsigmoid(float x)
 {
-   return x*(1-x);
+   return x*(1.0-x);
+}
+
+//__device__ float tanh(float x)
+//{
+//   // e**2x - 1
+//   // ---------
+//   // e**2x + 1
+//   float top =    __expf(2.0*x) - 1.0;
+//   float bottom = __expf(2.0*x) + 1.0;
+//   return top/bottom;
+//}
+
+__device__ float dtanh(float x)
+{
+   return 1.0 - x*x;
 }
 
 void err(cudaError_t returnVal)
@@ -39,7 +54,7 @@ __global__ void FpropH(float* layer1, const float* synH, const int offset)
 __global__ void Sigmoid1(float* layer1)
 {
    int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 128
-   layer1[i] = 1.0/(1.0 + __expf(-layer1[i]));
+   layer1[i] = tanhf(layer1[i]);
 }
 __global__ void Fprop2(const float* layer1, const float* syn2, float* out)
 {
@@ -51,7 +66,7 @@ __global__ void Fprop2(const float* layer1, const float* syn2, float* out)
 __global__ void Sigmoid2(float* out)
 {
    int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 4
-   out[i] = 1.0/(1.0 + __expf(-out[i]));
+   out[i] = sigmoid(out[i]);
 }
 __global__ void Ecalc2(float* out, const float* label)
 {
@@ -66,7 +81,7 @@ __global__ void Dcalc2(float* out, const float* label)
    int j = blockDim.y*blockIdx.y + threadIdx.y; //Data.count
 
    float x = out[4*j + i] - label[i];
-   out[4*j + i] = x*(1-x);
+   out[4*j + i] = dsigmoid(x);
 }
 __global__ void Bprop2(const float* out, const float* layer1, float* dsyn2, const float alpha)
 {
@@ -85,7 +100,7 @@ __global__ void Dcalc1(const float* out, float* dlayer1, const float* syn2)
    for (int k=0; k < 4; ++k)
       atomicAdd(&dlayer1[j*128 + i] , out[j*4 + k] * syn2[i*4 + k]);
    float x = dlayer1[j*128 + i];
-   dlayer1[j*128 + i] = x*(1-x);
+   dlayer1[j*128 + i] = dtanh(x);
 }
 __global__ void BpropH(const float* layer1, const float* dlayer1, float* dsynH, const float alpha, const int offset)
 {
@@ -193,14 +208,14 @@ int main(int argc, char** argv)
    {
       for (int k=0; k < 128; ++k)
       {
-         weights1[j*128 + k] = (float)rand()/(RAND_MAX/2.0) - 1.0;
+         weights1[j*128 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
       }
    }
    for (int i=0; i<128; ++i)
    {
       for (int j=0; j < 4; ++j)
       {
-         weights2[i*4 + j] = (float)rand()/(RAND_MAX/2.0) - 1.0;
+         weights2[i*4 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
       }
    }
 
@@ -255,7 +270,7 @@ int main(int argc, char** argv)
 
          //train<<<48,   125>>>(&d_in[6000*(iter%4)], &d_label[6000*(iter%4)], d_syn1, d_syn2, d_dsyn1, d_dsyn2, alpha);
          Fprop1<<<dim3(Data[d].count,16), dim3(128,4)>>>(d_in, d_syn1, d_layer1);
-         //Sigmoid1<<<Data[d].count, 128>>>(d_layer1);
+         Sigmoid1<<<Data[d].count, 128>>>(d_layer1);
          for (int i=1; i < Data[d].count; ++i)
             FpropH<<<dim3(32,1), dim3(4,128)>>>(d_layer1, d_synH, i);
          Sigmoid1<<<Data[d].count, 128>>>(d_layer1);
@@ -267,9 +282,9 @@ int main(int argc, char** argv)
          for (int i=Data[d].count-1; i > 0; --i)
             BpropH<<<dim3(32,1), dim3(4,128)>>>(d_layer1, d_dlayer1, d_dsynH, alpha, i);
          Bprop1<<<dim3(Data[d].count,16), dim3(128,4)>>>(d_dlayer1, d_in, d_syn1, d_dsyn1, alpha);
-         err(cudaMemcpy(weights1, d_syn1, sizeof(float)*64*128,  cudaMemcpyDeviceToHost));
-         err(cudaMemcpy(weights2, d_syn2, sizeof(float)*128*4,   cudaMemcpyDeviceToHost));
-         err(cudaMemcpy(weightsH, d_synH, sizeof(float)*128*128, cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weights1, d_dsyn1, sizeof(float)*64*128,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weights2, d_dsyn2, sizeof(float)*128*4,   cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weightsH, d_dsynH, sizeof(float)*128*128, cudaMemcpyDeviceToHost));
 
          err(cudaMemcpy(d_syn1, weights1, sizeof(float)*64*128,  cudaMemcpyHostToDevice));
          err(cudaMemcpy(d_syn2, weights2, sizeof(float)*128*4,   cudaMemcpyHostToDevice));
@@ -282,8 +297,6 @@ int main(int argc, char** argv)
 
       }
    }
-   //free(testI);
-   //free(testL);
    err(cudaMemcpy(weights1, d_syn1, sizeof(float)*64*128,  cudaMemcpyDeviceToHost));
    err(cudaMemcpy(weights2, d_syn2, sizeof(float)*128*4,  cudaMemcpyDeviceToHost));
    err(cudaMemcpy(weightsH, d_synH, sizeof(float)*128*128, cudaMemcpyDeviceToHost));
@@ -300,12 +313,12 @@ int main(int argc, char** argv)
    {
       float* d_in;     
       float* d_layer1; 
-      float* d_dlayer1;
+      //float* d_dlayer1;
       float* d_out;    
       float* out = (float*)malloc(Test[i].count*4*sizeof(float));
       err(cudaMalloc((void**)&d_in,     64*Test[i].count*sizeof(float)));
       err(cudaMalloc((void**)&d_layer1, Test[i].count*128*sizeof(float)));
-      err(cudaMalloc((void**)&d_dlayer1,Test[i].count*128*sizeof(float)));
+      //err(cudaMalloc((void**)&d_dlayer1,Test[i].count*128*sizeof(float)));
       err(cudaMalloc((void**)&d_out,    Test[i].count*4*sizeof(float)));
 
       //for (int j=0; j < Test[i].count*Test[i].depth; ++j)
@@ -362,11 +375,11 @@ int main(int argc, char** argv)
          //printf("\n");
          votes[out_high] += 1;
       }
-      if (i == num_test-1)
-      {
-         printf("%f, %f, %f, %f\n", out[32], out[33], out[34], out[35]);
+      //if (i == num_test-1)
+      //{
+      //   printf("%f, %f, %f, %f\n", out[32], out[33], out[34], out[35]);
          printf("%d, %d, %d, %d\n", votes[0], votes[1], votes[2], votes[3]);
-      }
+      //}
       int test_high = 0;
       int Max = 0;
       for (int k=0; k < 4; ++k)
@@ -378,14 +391,14 @@ int main(int argc, char** argv)
          }
       }
 
-      //printf("%d, %d\n", test_high, label_high);
+      printf("%d, %d\n", test_high, label_high);
       if (test_high != label_high)
          error += 1.0/num_test;
 
       free(out);
       err(cudaFree(d_in));
       err(cudaFree(d_layer1));
-      err(cudaFree(d_dlayer1));
+      //err(cudaFree(d_dlayer1));
       err(cudaFree(d_out));
 
    }
