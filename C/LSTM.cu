@@ -470,26 +470,32 @@ int main(int argc, char** argv)
       Fprop1<<<dim3(Test[d].count,64), dim3(128,1)>>>(d_in, d_syn1, d_layer1);
       Tanh<<<Test[d].count, 128>>>(d_layer1);
       Fprop1<<<dim3(Test[d].count,64), dim3(128,1)>>>(d_in, d_syn1i, d_layer1i);
-      Sigmoid<<<Test[d].count, 128>>>(d_layer1);
+      Sigmoid<<<Test[d].count, 128>>>(d_layer1i);
       Fprop1<<<dim3(Test[d].count,64), dim3(128,1)>>>(d_in, d_syn1o, d_layer1o);
-      Sigmoid<<<Test[d].count, 128>>>(d_layer1);
+      Sigmoid<<<Test[d].count, 128>>>(d_layer1o);
+      LSTM1<<<1, 128>>>(d_layer1, d_lstm1, d_layer1i, d_layer1o, 0);
       for (int i=1; i < Test[d].count; ++i)
       {
+         FpropH<<<dim3(128,1), dim3(1,128)>>>(d_layer1, d_synH, i);
          LSTM1<<<1, 128>>>(d_layer1, d_lstm1, d_layer1i, d_layer1o, i);
-         FpropH<<<dim3(32,1), dim3(4,128)>>>(d_layer1, d_synH, i);
       }
-      Fprop2<<<1, 4>>>(d_layer1, d_synH, d_out, Test[d].count-1);
+      Fprop2<<<dim3(1,1), dim3(4, 128)>>>(d_layer1, d_syn2, d_out, Test[d].count-1);
       Sigmoid<<<1, 4>>>(d_out);
 
-      //Dcalc2<<<1, 4>>>(d_out, d_label);
-      //Bprop2<<<1, 128>>>(d_out, d_layer1, d_syn2, Test[d].count, alpha);
-      //Dcalc1<<<1, 128>>>(d_out, d_dlayer1, d_syn2, Test[d].count);
-      //for (int i=Test[d].count-1; i > 0; --i)
+      //Fprop1<<<dim3(Test[d].count,64), dim3(128,1)>>>(d_in, d_syn1, d_layer1);
+      //Tanh<<<Test[d].count, 128>>>(d_layer1);
+      //Fprop1<<<dim3(Test[d].count,64), dim3(128,1)>>>(d_in, d_syn1i, d_layer1i);
+      //Sigmoid<<<Test[d].count, 128>>>(d_layer1);
+      //Fprop1<<<dim3(Test[d].count,64), dim3(128,1)>>>(d_in, d_syn1o, d_layer1o);
+      //Sigmoid<<<Test[d].count, 128>>>(d_layer1);
+      //for (int i=1; i < Test[d].count; ++i)
       //{
-      //   BpropH<<<dim3(128,1), dim3(1,128)>>>(d_layer1, d_dlayer1, d_synH, d_dsynH, alpha, i, (float)Test[d].count);
-      //   BLSTM1<<<1, 128>>>(d_layer1, d_dlayer1, d_lstm1, d_layer1i, d_layer1o, i);
+      //   LSTM1<<<1, 128>>>(d_layer1, d_lstm1, d_layer1i, d_layer1o, i);
+      //   FpropH<<<dim3(32,1), dim3(4,128)>>>(d_layer1, d_synH, i);
       //}
-      //Bprop1<<<dim3(Test[d].count, 64), dim3(128, 1)>>>(d_layer1, d_layer1i, d_layer1o, d_in, d_dsyn1, d_dsyn1i, d_dsyn1o, alpha, (float)Test[d].count);
+      //Fprop2<<<1, 4>>>(d_layer1, d_synH, d_out, Test[d].count-1);
+      //Sigmoid<<<1, 4>>>(d_out);
+
 
       err(cudaMemcpy(out, d_out, sizeof(float)*4,  cudaMemcpyDeviceToHost));
 
