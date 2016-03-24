@@ -50,8 +50,8 @@ __global__ void LSTM1(float* layer1, float* lstm1, const float* gate1i, const fl
    float g_o = gate1o[128*offset + i];
 
    float i_t = tanh(layer1[128*offset + i]) * g_i;
-   lstm1[128*offset + i] = lstm1[128*offset + i] * g_f + i_t;
-   layer1[128*offset + i] = tanh(lstm1[128*offset + i] * g_o);
+   lstm1[128*offset + i] = (offset==0 ? 0.0 : lstm1[128*(offset-1) + i]) * g_f + i_t;
+   layer1[128*offset + i] = tanh(lstm1[128*offset + i]) * g_o;
 }
 __global__ void FpropH(float* layer1, const float* synH, const int offset)
 {
@@ -96,8 +96,8 @@ __global__ void Dcalc2(float* out, const float* label)
 }
 __global__ void Bprop2(const float* out, const float* layer1, float* dsyn2, const int count, const float alpha)
 {
-   int i = threadIdx.y; //128
-   int j = threadIdx.x; //4
+   int i = blockDim.y*blockIdx.y + threadIdx.y; //128
+   int j = blockDim.x*blockIdx.x + threadIdx.x; //4
    //int k = blockIdx.x;  //Data.count
 
    atomicAdd(&dsyn2[i*4 + j], out[j] * layer1[128*(count) + i] * alpha);
@@ -266,8 +266,7 @@ int main(int argc, char** argv)
    {
       for (int j=0; j < 4; ++j)
       {
-         weights2[i*4 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-      }
+         weights2[i*4 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1; }
    }
 
    for (int i=0; i<128; ++i)
@@ -315,7 +314,7 @@ int main(int argc, char** argv)
          float* d_lstm1;
          float* d_out;
          float layer1[Data[d].count*128];
-         float out[4];
+         float* out = (float*)malloc(4*sizeof(float));
          err(cudaMalloc((void**)&d_in,     Data[d].count*64*sizeof(float)));
          err(cudaMalloc((void**)&d_layer1, Data[d].count*128*sizeof(float)));
          err(cudaMalloc((void**)&d_layer1i,Data[d].count*128*sizeof(float)));
@@ -358,7 +357,7 @@ int main(int argc, char** argv)
 
 // backward pass
          Dcalc2<<<1, 4>>>(d_out, d_label);
-         Bprop2<<<dim3(1,1), dim3(128,4)>>>(d_out, d_layer1, d_syn2, Data[d].count-1, alpha);
+         Bprop2<<<dim3(4,1), dim3(1,128)>>>(d_out, d_layer1, d_syn2, Data[d].count-1, alpha);
          Dcalc1<<<1, 128>>>(d_out, d_dlayer1, d_syn2, Data[d].count-1);
          for (int i=Data[d].count-1; i > 0; --i)
          {
@@ -374,6 +373,9 @@ int main(int argc, char** argv)
          err(cudaFree(d_dlayer1));
          err(cudaFree(d_lstm1));
          err(cudaFree(d_out));
+
+         cudaDeviceSynchronize();
+         free(out);
 
       }
 
