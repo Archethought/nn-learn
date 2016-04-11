@@ -1,9 +1,9 @@
 CFLG=-g -O3 -Wall
 LIBS=-lsndfile -lm
-CLEAN=rm -rf *run Rnn *.o *.a *.dSYM
+CLEAN=rm -rf *run Rnn lstm* *.o *.a *.dSYM
 ARCH=-gencode arch=compute_52,code=sm_52
 
-all:run srun Rnn lstm
+all:run srun Rnn lstm lstm_cpu
 
 neuralnet.o:neuralnet.c reader.c
 	gcc -std=c99 -c $(CFLG) $<
@@ -13,6 +13,8 @@ RNN.o:RNN.cu reader_ts.c
 	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -Xcompiler -fopenmp
 LSTM.o:LSTM.cu reader_ts.c
 	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -Xcompiler -fopenmp
+LSTM_CPU.o:LSTM_CPU.c reader_ts.c
+	gcc -std=c99 -c $(CFLG) $< -fopenmp
 
 #  link
 run:neuralnet.o
@@ -23,6 +25,8 @@ Rnn:RNN.o
 	nvcc -ccbin gcc -m64 $(ARCH) -g -G -O3 -o $@ $^ -lfftw3 $(LIBS) -lgomp
 lstm:LSTM.o
 	nvcc -ccbin gcc -m64 $(ARCH) -g -G -O3 -o $@ $^ -lfftw3 $(LIBS) -lgomp
+lstm_cpu:LSTM_CPU.o
+	gcc -std=c99 -g -O3 -o $@ $^ -lfftw3 $(LIBS) -lgomp
 
 #  Clean
 clean:

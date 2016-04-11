@@ -99,6 +99,8 @@ struct data read_this(const char* infile, const char* label)
    int fft_depth = 64;
    Result.depth = fft_depth;
    int samples_per_bin = 5*info.samplerate/22050;
+   if (samples_per_bin <= 0)
+      samples_per_bin = 1;
 
    double* in;
    fftw_complex* out;
@@ -111,6 +113,7 @@ struct data read_this(const char* infile, const char* label)
    plan = fftw_plan_dft_r2c_1d(segment_length, in, out, FFTW_ESTIMATE);
 
    Result.Image = (float*)malloc(fft_depth * (info.frames/segment_length) * sizeof(float));
+   memset(Result.Image, 0.0, fft_depth * (info.frames/segment_length) * sizeof(float));
 
    //float max = 0.0;
    for (int i=0; (i+1)*segment_length < info.frames; ++i)
@@ -144,11 +147,14 @@ struct data read_this(const char* infile, const char* label)
             for (int k=0; k<samples_per_bin; ++k)
                Result.Image[i*fft_depth + j] += (float)processed[j*samples_per_bin + k];
             Result.Image[i*fft_depth + j] /= samples_per_bin;
+            if (isnan(Result.Image[i*fft_depth + j]))
+               printf("problem in the data\n");
          }
       }
       Result.count = i;
+      //printf("%d ", i);
    }
-   //printf("max: %f\n", max);
+   //printf("\n");
 
    free(raw_data);
    free(processed);
