@@ -169,12 +169,12 @@ int main(int argc, char** argv)
       {
          if (i-locations[j]-1 < split)
          {
-            Data[k] = read_this(argv[i], genre[j]); //training data
+            Data[k] = read_known(argv[i], genre[j]); //training data
             ++k;
          }
          else
          {
-            Test[l] = read_this(argv[i], genre[j]); //testing data
+            Test[l] = read_known(argv[i], genre[j]); //testing data
             ++l;
          }
          //printf("%d, %d, %d:%x, %d:%x\n", i, i<split, k, Data[k-1].Image, l, Test[l-1].Image);

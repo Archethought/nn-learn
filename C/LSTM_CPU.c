@@ -400,7 +400,7 @@ int main(int argc, char** argv)
       {
          if (i-locations[j]-1 < split)
          {
-            Data[k] = read_this(argv[i], genre[j]); //training data
+            Data[k] = read_known(argv[i], genre[j]); //training data
             for (int t=0; t < Data[k].count * Data[k].depth; ++t)
             {
                if (isnan(Data[k].Image[t]))
@@ -410,7 +410,7 @@ int main(int argc, char** argv)
          }
          else
          {
-            Test[l] = read_this(argv[i], genre[j]); //testing data
+            Test[l] = read_known(argv[i], genre[j]); //testing data
             for (int t=0; t < Test[l].count * Test[l].depth; ++t)
             {
                if (isnan(Test[l].Image[t]))

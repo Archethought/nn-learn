@@ -149,7 +149,7 @@ __global__ void DcalcH(const float* layer1i, float* dlayer1, const float* synH, 
    //float x = 0.0;
    //for (int j=0; j < 256; ++j)
    //   x += layer1i[offset*256 + j] * synH[i*256 + j];
-   //dlayer1[(offset-1)*256 + i] += x; 
+   //dlayer1[(offset-1)*256 + i] += x;
    atomicAdd(&dlayer1[(offset-1)*256 + i] , layer1i[offset*256 + j] * synH[i*256 + j]);
 }
 __global__ void BLSTM1(const float* layer1i, const float* layer1o, const float* dlayer1, const float* lstm1, float* gate1i, float* gate1o)
@@ -197,68 +197,43 @@ __global__ void Bprop1(const float* dlstm1, const float* gate1i, const float* ga
 }
 
 
+void pickle(float* syn1, float* syn1i, float* syn1o, float* synH, float* synHi, float* synHo, float* syn2, char* filename)
+{
+   int er = 0;
+   FILE* outfile = fopen(filename, "wb");
+   er += fwrite(syn1, sizeof(float), 64*256, outfile);
+   er += fwrite(syn1i,sizeof(float), 64*256, outfile);
+   er += fwrite(syn1i,sizeof(float), 64*256, outfile);
+   er += fwrite(synH, sizeof(float), 256*256, outfile);
+   er += fwrite(synHi,sizeof(float), 256*256, outfile);
+   er += fwrite(synHo,sizeof(float), 256*256, outfile);
+   er += fwrite(syn2, sizeof(float), 256*4, outfile);
+   printf("%d\n", er);
+   fclose(outfile);
+}
+void unpickle(float* syn1, float* syn1i, float* syn1o, float* synH, float* synHi, float* synHo, float* syn2, char* filename)
+{
+   int er = 0;
+   FILE* infile = fopen(filename, "rb");
+   er += fread(syn1, sizeof(float), 64*256, infile);
+   er += fread(syn1i,sizeof(float), 64*256, infile);
+   er += fread(syn1o,sizeof(float), 64*256, infile);
+   er += fread(synH, sizeof(float), 256*256, infile);
+   er += fread(synHi,sizeof(float), 256*256, infile);
+   er += fread(synHo,sizeof(float), 256*256, infile);
+   er += fread(syn2, sizeof(float), 256*4, infile);
+   printf("%d\n", er);
+   fclose(infile);
+}
+
+
 int main(int argc, char** argv)
 {
-   //if (argc != 4)
-   //{
-   //   printf("usage: run trainingImage iterations alpha\n");
-   //   return 2;
-   //}
-   //printf("%d\n", argc);
-   const char* genre[4] = {"classical", "jazz", "metal", "pop"};
-   int locations[5] = {0};
-   int num_data = argc-7;
-   int num_test = num_data/4/4*4;
-   num_data -= num_test;
+   int num_data = 0;;
+   int num_test = 0;
 
-   if (num_data <= 0 || num_test <= 0)
-   {  printf("too few data\n"); exit(1); }
-
-   printf("reading data\n");
-   struct data* Data = (struct data*)malloc(num_data*sizeof(struct data));
-   struct data* Test = (struct data*)malloc(num_test*sizeof(struct data));
-   for (int i=1; i < argc-2; ++i)
-   {
-      for (int j=0; j < 4; ++j)
-      {
-         if (!strcmp(argv[i], genre[j]))
-            locations[j] = i;
-      }
-   }
-   locations[4] = argc-2;
-   //for (int i=0; i < 5; ++i)
-      //printf("%d\n", locations[i]);
-   for (int j=0, k=0, l=0; j<4; ++j)
-   {
-      //int split = locations[j] + 0.7*(locations[j+1] - locations[j]);
-      int split = (num_data)/4;
-      //printf("%d\n", split);
-//#pragma omp parallel for
-      for (int i=locations[j]+1; i < locations[j+1]; ++i)
-      {
-         if (i-locations[j]-1 < split)
-         {
-            Data[k] = read_this(argv[i], genre[j]); //training data
-            //printf("%d: %d [%f]\n", k, Data[k].count, Data[k].Image[Data[k].count-1]);
-            ++k;
-         }
-         else
-         {
-            Test[l] = read_this(argv[i], genre[j]); //testing data
-            ++l;
-         }
-         //printf("%d, %d, %d:%x, %d:%x\n", i, i<split, k, Data[k-1].Image, l, Test[l-1].Image);
-      }
-   }
-
-   float weights1[64*256];    //input to middle layer weights
-   float weights1i[64*256];    //input to middle layer weights
-   float weights1o[64*256];    //input to middle layer weights
-   float weightsH[256*256];   //propagation through time weights
-   float weightsHi[256*256];   //propagation through time weights
-   float weightsHo[256*256];   //propagation through time weights
-   float weights2[256*4];     //middle to output layer weights
-   float alpha = atof(argv[argc-1]);
+   struct data* Data = NULL;
+   struct data* Test = NULL;
 
    //float* d_in;     err(cudaMalloc((void**)&d_in,     64*Data.count*sizeof(float)));
    //float* d_label;  err(cudaMalloc((void**)&d_label,  Data.count*4*sizeof(float)));
@@ -281,53 +256,13 @@ int main(int argc, char** argv)
    float* d_dsyn2;  err(cudaMalloc((void**)&d_dsyn2,  256*4*sizeof(float)));
    float* d_label;  err(cudaMalloc((void**)&d_label,  4*sizeof(float)));
 
-   //Initialize weights to random values
-   //printf("randomizing initial weights\n");
-   srand(112992); //make the random values the same each time
-   for (int j=0; j < 64; ++j)
-   {
-      for (int k=0; k < 256; ++k)
-      {
-         weights1 [j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-         weights1i[j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-         weights1o[j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-      }
-   }
-   for (int i=0; i < 256; ++i)
-   {
-      for (int j=0; j < 4; ++j)
-      {
-         weights2[i*4 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-      }
-   }
-
-   for (int i=0; i < 256; ++i)
-   {
-      for (int j=0; j < 256; ++j)
-      {
-         weightsH[i*256 + j]  = (float)rand()/(RAND_MAX/0.2) - 0.1;
-         weightsHi[i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-         weightsHo[i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-      }
-   }
-
-
-   //err(cudaMemcpy(d_in, Data.Image, 64*Data.count*sizeof(float), cudaMemcpyHostToDevice));
-   //err(cudaMemcpy(d_label, Data.Label, 4*Data.count*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_syn1,  weights1, 64*256*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsyn1, weights1, 64*256*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_syn1i, weights1i,64*256*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsyn1i,weights1i,64*256*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_syn1o, weights1o,64*256*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsyn1o,weights1o,64*256*sizeof(float), cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_synH,  weightsH, 256*256*sizeof(float),cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsynH, weightsH, 256*256*sizeof(float),cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_synHi, weightsHi,256*256*sizeof(float),cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsynHi,weightsHi,256*256*sizeof(float),cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_synHo, weightsHo,256*256*sizeof(float),cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsynHo,weightsHo,256*256*sizeof(float),cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_syn2,  weights2, 4*256*sizeof(float),  cudaMemcpyHostToDevice));
-   err(cudaMemcpy(d_dsyn2, weights2, 4*256*sizeof(float),  cudaMemcpyHostToDevice));
+   float weights1[64*256];    //input to middle layer weights
+   float weights1i[64*256];    //input to middle layer weights
+   float weights1o[64*256];    //input to middle layer weights
+   float weightsH[256*256];   //propagation through time weights
+   float weightsHi[256*256];   //propagation through time weights
+   float weightsHo[256*256];   //propagation through time weights
+   float weights2[256*4];     //middle to output layer weights
 
    cudaStream_t s[3];
    cudaStreamCreate(&s[0]);
@@ -335,206 +270,290 @@ int main(int argc, char** argv)
    cudaStreamCreate(&s[2]);
    //cudaStreamCreate(&s[3]);
 
-   //train
-   int iterations = atoi(argv[argc-2]);
-   printf("training %d iterations\n", iterations);
-   clock_t start_time = clock();
-   for (int iter=0; iter<iterations; ++iter)
+   if (!strcmp(argv[argc-1], "r"))
    {
-      //printf("iteration %d\n", iter);
-      for (int d=0; d < num_data; ++d)
+      num_test = (argc-2)/2;
+      Test = (struct data*)malloc(num_test*sizeof(struct data));
+      for (int i=1, k=0; i < argc-2; i += 2, ++k)
       {
-         //printf("-\n");
-         //printf("%d\t%f\n", Data[d].count, Data[d].Image[Data[d].count-1]);
-         float* d_in;
-         //float* d_layer1;
-         //float* layer1;
-         float* d_layer1i; //float* layer1i;
-         float* d_layer1o; //float* layer1o;
-         float* d_gate1i;  //float* gate1i;
-         float* d_gate1o;  //float* gate1o;
-         float* d_dgate1o; //float* gate1o;
-         float* d_dlayer1; //float* dlayer1;
-         float* d_dlstm1;  //float* dlstm1;
-         float* d_lstm1;   //float* lstm1;
-         float* d_out;     //float* out;
+         Test[k] = read_known(argv[i+1], argv[i]);
+      }
+      unpickle(weights1, weights1i, weights1o, weightsH, weightsHi, weightsHo, weights2, argv[argc-2]);
+   }
 
-         err(cudaMalloc((void**)&d_in,     Data[d].count*64*sizeof(float)));
-         //err(cudaMalloc((void**)&d_layer1,Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_layer1i,Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_layer1o,Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_gate1i, Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_gate1o, Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_dgate1o, Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_dlayer1,Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_dlstm1, Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_lstm1,  Data[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_out,    Data[d].count*4*sizeof(float)));
-         //layer1  = (float*)malloc(Data[d].count*256*sizeof(float));
-         //layer1i = (float*)malloc(Data[d].count*256*sizeof(float));
-         //layer1o = (float*)malloc(Data[d].count*256*sizeof(float));
-         //gate1i  = (float*)malloc(Data[d].count*256*sizeof(float));
-         //gate1o  = (float*)malloc(Data[d].count*256*sizeof(float));
-         //dlayer1 = (float*)malloc(Data[d].count*256*sizeof(float));
-         //lstm1   = (float*)malloc(Data[d].count*256*sizeof(float));
-         //out     = (float*)malloc(Data[d].count*4*sizeof(float));
+   else
+   {
+      int num_args = !strcmp(argv[argc-1], "w") ? argc-2 : argc;
+      const char* genre[4] = {"classical", "jazz", "metal", "pop"};
+      int locations[5] = {0};
+      num_data = num_args-7;
+      num_test = num_data/4/4*4;
+      num_data -= num_test;
 
-         //for (int i=0; i < Data[d].count*256; ++i)
-         //   layer1[i] = 0;
-         //for (int i=0; i < 4; ++i)
-         //   out[i] = 0;
+      if (num_data <= 0 || num_test <= 0)
+      {  printf("too few data\n"); exit(1); }
 
-         //cudaDeviceSynchronize();
-         //err(cudaMemset(d_layer1,  0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_layer1i, 0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_layer1o, 0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_gate1i,  0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_gate1o,  0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_dgate1o, 0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_dlayer1, 0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_dlstm1,  0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_lstm1,   0.0, Data[d].count*256*sizeof(float)));
-         err(cudaMemset(d_out,     0.0, Data[d].count*4  *sizeof(float)));
-
-         err(cudaMemcpy(d_in,    Data[d].Image, 64*Data[d].count*sizeof(float), cudaMemcpyHostToDevice));
-         err(cudaMemcpy(d_label, Data[d].Label, 4*sizeof(float), cudaMemcpyHostToDevice));
-
-   // forward pass
-         Fprop1<<<Data[d].count, 256 ,0, s[0]>>>(d_in, d_syn1, d_layer1i);
-         Fprop1<<<Data[d].count, 256 ,0, s[1]>>>(d_in, d_syn1i, d_gate1i);
-         Fprop1<<<Data[d].count, 256 ,0, s[2]>>>(d_in, d_syn1o, d_gate1o);
-         LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, 0);
-         for (int i=1; i < Data[d].count; ++i)
+      printf("reading data\n");
+      Data = (struct data*)malloc(num_data*sizeof(struct data));
+      Test = (struct data*)malloc(num_test*sizeof(struct data));
+      for (int i=1; i < num_args-2; ++i)
+      {
+         for (int j=0; j < 4; ++j)
          {
-            FpropH<<<256, 256 ,0, s[0]>>>(d_layer1i, d_layer1o, d_synH,  i);
-            FpropH<<<256, 256 ,0, s[1]>>>(d_gate1i,  d_layer1o, d_synHi, i);
-            FpropH<<<256, 256 ,0, s[2]>>>(d_gate1o,  d_layer1o, d_synHo, i);
-            LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, i);
+            if (!strcmp(argv[i], genre[j]))
+               locations[j] = i;
          }
-         Fprop2<<<dim3(1, Data[d].count), dim3(4, 1)>>>(d_layer1o, d_syn2, d_out);
-
-   //backward pass
-         Dcalc2<<<dim3(1, Data[d].count), dim3(4, 1)>>>(d_out, d_label);
-         Bprop2<<<dim3(Data[d].count,1), dim3(4,256)>>>(d_out, d_layer1o, d_dsyn2, alpha/Data[d].count);
-         Dcalc1<<<Data[d].count, 256>>>(d_out, d_dlayer1, d_syn2);
-         bool last = true;
-         for (int i=Data[d].count-1; i >= 1; i -= 1)
+      }
+      locations[4] = num_args-2;
+      //for (int i=0; i < 5; ++i)
+         //printf("%d\n", locations[i]);
+      for (int j=0, k=0, l=0; j<4; ++j)
+      {
+         //int split = locations[j] + 0.7*(locations[j+1] - locations[j]);
+         int split = (num_data)/4;
+         //printf("%d\n", split);
+   //#pragma omp parallel for
+         for (int i=locations[j]+1; i < locations[j+1]; ++i)
          {
-            BLSTMH<<<1, 256>>>(d_layer1i, d_layer1o, d_dlayer1, d_dlstm1, d_lstm1, d_gate1i, d_gate1o, i, last);
-            DcalcH<<<256, 256>>>(d_layer1i, d_dlayer1, d_synH, i);
-
-            //err(cudaMemcpy(layer1, d_dlstm1, sizeof(float)*Data[d].count*256, cudaMemcpyDeviceToHost));
-            //bool thing = false;
-            //for (int j=0; j < Data[d].count*256; ++j)
-            //{
-            //   if (isnan(layer1[j]))
-            //      thing = true;
-            //}
-            //if (thing)
-            //{
-            //   printf("problem at i = %d/%d\n", i, Data[d].count-1);
-            //   break;
-            //}
-            last = false;
+            if (i-locations[j]-1 < split)
+            {
+               Data[k] = read_known(argv[i], genre[j]); //training data
+               //printf("%d: %d [%f]\n", k, Data[k].count, Data[k].Image[Data[k].count-1]);
+               ++k;
+            }
+            else
+            {
+               Test[l] = read_known(argv[i], genre[j]); //testing data
+               ++l;
+            }
+            //printf("%d, %d, %d:%x, %d:%x\n", i, i<split, k, Data[k-1].Image, l, Test[l-1].Image);
          }
-         BLSTMH<<<1, 256>>>(d_layer1i, d_layer1o, d_dlayer1, d_dlstm1, d_lstm1, d_gate1i, d_gate1o, 0, false);
-
-         BLSTM1<<<Data[d].count, 256>>>(d_layer1i, d_layer1o, d_dlayer1, d_lstm1, d_layer1i, d_layer1o);
-         BpropH<<<dim3(256, Data[d].count-2), dim3(256, 1) ,0, s[0]>>>(d_dlstm1, d_gate1i, d_gate1o, d_dgate1o, d_lstm1, d_dsynH, d_dsynHi, d_dsynHo, alpha/Data[d].count);
-         Bprop1<<<Data[d].count, 256 ,0, s[1]>>>(d_dlstm1, d_gate1i, d_gate1o, d_in, d_dsyn1, d_dsyn1i, d_dsyn1o, alpha/Data[d].count);
-
-         err(cudaFree(d_in));
-         err(cudaFree(d_layer1i));
-         err(cudaFree(d_layer1o));
-         err(cudaFree(d_gate1i));
-         err(cudaFree(d_gate1o));
-         err(cudaFree(d_dgate1o));
-         err(cudaFree(d_dlayer1));
-         err(cudaFree(d_lstm1));
-         err(cudaFree(d_dlstm1));
-         err(cudaFree(d_out));
-
-         cudaDeviceSynchronize();
-         //free(out);
-         //free(layer1 );
-         //free(layer1i);
-         //free(layer1o);
-         //free(dlayer1);
-         //free(lstm1  );
-         //free(out    );
       }
 
-      //printf("\n");
-
-      //rather than memcpy, just swap the pointers, ping pong style
-      //float* tmp;
-      //tmp = d_syn1;  d_syn1 = d_dsyn1;  d_dsyn1 = tmp;
-      //tmp = d_syn1i; d_syn1i = d_dsyn1i;d_dsyn1i = tmp;
-      //tmp = d_syn1o; d_syn1o = d_dsyn1o;d_dsyn1o = tmp;
-      //tmp = d_syn2;  d_syn2 = d_dsyn2;  d_dsyn2 = tmp;
-      //tmp = d_synH;  d_synH = d_dsynH;  d_dsynH = tmp;
-
-      err(cudaMemcpy(d_syn1,  d_dsyn1, sizeof(float)*64*256,  cudaMemcpyDeviceToDevice));
-      err(cudaMemcpy(d_syn1i, d_dsyn1i,sizeof(float)*64*256,  cudaMemcpyDeviceToDevice));
-      err(cudaMemcpy(d_syn1o, d_dsyn1o,sizeof(float)*64*256,  cudaMemcpyDeviceToDevice));
-      err(cudaMemcpy(d_synH,  d_dsynH, sizeof(float)*256*256,  cudaMemcpyDeviceToDevice));
-      err(cudaMemcpy(d_synHi, d_dsynHi,sizeof(float)*256*256,  cudaMemcpyDeviceToDevice));
-      err(cudaMemcpy(d_synHo, d_dsynHo,sizeof(float)*256*256,  cudaMemcpyDeviceToDevice));
-      err(cudaMemcpy(d_syn2,  d_dsyn2, sizeof(float)*256*4,   cudaMemcpyDeviceToDevice));
-
-      err(cudaMemcpy(weights1,  d_dsyn1, sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
-      err(cudaMemcpy(weights1i, d_dsyn1i,sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
-      err(cudaMemcpy(weights1o, d_dsyn1o,sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
-      err(cudaMemcpy(weightsH,  d_dsynH, sizeof(float)*256*256,  cudaMemcpyDeviceToHost));
-      err(cudaMemcpy(weightsHi, d_dsynHi,sizeof(float)*256*256,  cudaMemcpyDeviceToHost));
-      err(cudaMemcpy(weightsHo, d_dsynHo,sizeof(float)*256*256,  cudaMemcpyDeviceToHost));
-      err(cudaMemcpy(weights2,  d_dsyn2, sizeof(float)*256*4,   cudaMemcpyDeviceToHost));
-
-      int er = 0;
-      for (int i=0; i < 64*256; ++i)
+      //Initialize weights to random values
+      //printf("randomizing initial weights\n");
+      srand(112992); //make the random values the same each time
+      for (int j=0; j < 64; ++j)
       {
-         if (isnan(weights1[i]))
-            er |= 1;
-         if (isnan(weights1i[i]))
-            er |= 2;
-         if (isnan(weights1o[i]))
-            er |= 4;
+         for (int k=0; k < 256; ++k)
+         {
+            weights1 [j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            weights1i[j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            weights1o[j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+         }
       }
-      for (int i=0; i < 256*256; ++i)
+      for (int i=0; i < 256; ++i)
       {
-         if (isnan(weightsH[i]))
-            er |= 8;
-         if (isnan(weightsHi[i]))
-            er |= 16;
-         if (isnan(weightsHo[i]))
-            er |= 32;
-      }
-      for (int i=0; i < 256*4; ++i)
-      {
-         if (isnan(weights2[i]))
-            er |= 64;
+         for (int j=0; j < 4; ++j)
+         {
+            weights2[i*4 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+         }
       }
 
-      if (er)
-         printf("%x\n", er);
+      for (int i=0; i < 256; ++i)
+      {
+         for (int j=0; j < 256; ++j)
+         {
+            weightsH[i*256 + j]  = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            weightsHi[i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            weightsHo[i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+         }
+      }
+
+
+      //err(cudaMemcpy(d_in, Data.Image, 64*Data.count*sizeof(float), cudaMemcpyHostToDevice));
+      //err(cudaMemcpy(d_label, Data.Label, 4*Data.count*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_syn1,  weights1, 64*256*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsyn1, weights1, 64*256*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_syn1i, weights1i,64*256*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsyn1i,weights1i,64*256*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_syn1o, weights1o,64*256*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsyn1o,weights1o,64*256*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_synH,  weightsH, 256*256*sizeof(float),cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsynH, weightsH, 256*256*sizeof(float),cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_synHi, weightsHi,256*256*sizeof(float),cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsynHi,weightsHi,256*256*sizeof(float),cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_synHo, weightsHo,256*256*sizeof(float),cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsynHo,weightsHo,256*256*sizeof(float),cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_syn2,  weights2, 4*256*sizeof(float),  cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_dsyn2, weights2, 4*256*sizeof(float),  cudaMemcpyHostToDevice));
+
+      //train
+      float alpha = atof(argv[num_args-1]);
+      int iterations = atoi(argv[num_args-2]);
+      printf("training %d iterations\n", iterations);
+      clock_t start_time = clock();
+      for (int iter=0; iter<iterations; ++iter)
+      {
+         //printf("iteration %d\n", iter);
+         for (int d=0; d < num_data; ++d)
+         {
+            //printf("-\n");
+            //printf("%d\t%f\n", Data[d].count, Data[d].Image[Data[d].count-1]);
+            float* d_in;
+            //float* d_layer1;
+            //float* layer1;
+            float* d_layer1i; //float* layer1i;
+            float* d_layer1o; //float* layer1o;
+            float* d_gate1i;  //float* gate1i;
+            float* d_gate1o;  //float* gate1o;
+            float* d_dgate1o; //float* gate1o;
+            float* d_dlayer1; //float* dlayer1;
+            float* d_dlstm1;  //float* dlstm1;
+            float* d_lstm1;   //float* lstm1;
+            float* d_out;     //float* out;
+
+            err(cudaMalloc((void**)&d_in,     Data[d].count*64*sizeof(float)));
+            //err(cudaMalloc((void**)&d_layer1,Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_layer1i,Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_layer1o,Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_gate1i, Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_gate1o, Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_dgate1o, Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_dlayer1,Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_dlstm1, Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_lstm1,  Data[d].count*256*sizeof(float)));
+            err(cudaMalloc((void**)&d_out,    Data[d].count*4*sizeof(float)));
+            //layer1  = (float*)malloc(Data[d].count*256*sizeof(float));
+            //layer1i = (float*)malloc(Data[d].count*256*sizeof(float));
+            //layer1o = (float*)malloc(Data[d].count*256*sizeof(float));
+            //gate1i  = (float*)malloc(Data[d].count*256*sizeof(float));
+            //gate1o  = (float*)malloc(Data[d].count*256*sizeof(float));
+            //dlayer1 = (float*)malloc(Data[d].count*256*sizeof(float));
+            //lstm1   = (float*)malloc(Data[d].count*256*sizeof(float));
+            //out     = (float*)malloc(Data[d].count*4*sizeof(float));
+
+            //for (int i=0; i < Data[d].count*256; ++i)
+            //   layer1[i] = 0;
+            //for (int i=0; i < 4; ++i)
+            //   out[i] = 0;
+
+            //cudaDeviceSynchronize();
+            //err(cudaMemset(d_layer1,  0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_layer1i, 0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_layer1o, 0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_gate1i,  0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_gate1o,  0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_dgate1o, 0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_dlayer1, 0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_dlstm1,  0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_lstm1,   0.0, Data[d].count*256*sizeof(float)));
+            err(cudaMemset(d_out,     0.0, Data[d].count*4  *sizeof(float)));
+
+            err(cudaMemcpy(d_in,    Data[d].Image, 64*Data[d].count*sizeof(float), cudaMemcpyHostToDevice));
+            err(cudaMemcpy(d_label, Data[d].Label, 4*sizeof(float), cudaMemcpyHostToDevice));
+
+      // forward pass
+            Fprop1<<<Data[d].count, 256 ,0, s[0]>>>(d_in, d_syn1, d_layer1i);
+            Fprop1<<<Data[d].count, 256 ,0, s[1]>>>(d_in, d_syn1i, d_gate1i);
+            Fprop1<<<Data[d].count, 256 ,0, s[2]>>>(d_in, d_syn1o, d_gate1o);
+            LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, 0);
+            for (int i=1; i < Data[d].count; ++i)
+            {
+               FpropH<<<256, 256 ,0, s[0]>>>(d_layer1i, d_layer1o, d_synH,  i);
+               FpropH<<<256, 256 ,0, s[1]>>>(d_gate1i,  d_layer1o, d_synHi, i);
+               FpropH<<<256, 256 ,0, s[2]>>>(d_gate1o,  d_layer1o, d_synHo, i);
+               LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, i);
+            }
+            Fprop2<<<dim3(1, Data[d].count), dim3(4, 1)>>>(d_layer1o, d_syn2, d_out);
+
+      // backward pass
+            Dcalc2<<<dim3(1, Data[d].count), dim3(4, 1)>>>(d_out, d_label);
+            Bprop2<<<dim3(Data[d].count,1), dim3(4,256)>>>(d_out, d_layer1o, d_dsyn2, alpha/Data[d].count);
+            Dcalc1<<<Data[d].count, 256>>>(d_out, d_dlayer1, d_syn2);
+            bool last = true;
+            for (int i=Data[d].count-1; i >= 1; i -= 1)
+            {
+               BLSTMH<<<1, 256>>>(d_layer1i, d_layer1o, d_dlayer1, d_dlstm1, d_lstm1, d_gate1i, d_gate1o, i, last);
+               DcalcH<<<256, 256>>>(d_layer1i, d_dlayer1, d_synH, i);
+
+               //err(cudaMemcpy(layer1, d_dlstm1, sizeof(float)*Data[d].count*256, cudaMemcpyDeviceToHost));
+               //bool thing = false;
+               //for (int j=0; j < Data[d].count*256; ++j)
+               //{
+               //   if (isnan(layer1[j]))
+               //      thing = true;
+               //}
+               //if (thing)
+               //{
+               //   printf("problem at i = %d/%d\n", i, Data[d].count-1);
+               //   break;
+               //}
+               last = false;
+            }
+            BLSTMH<<<1, 256>>>(d_layer1i, d_layer1o, d_dlayer1, d_dlstm1, d_lstm1, d_gate1i, d_gate1o, 0, false);
+
+            BLSTM1<<<Data[d].count, 256>>>(d_layer1i, d_layer1o, d_dlayer1, d_lstm1, d_layer1i, d_layer1o);
+            BpropH<<<dim3(256, Data[d].count-2), dim3(256, 1) ,0, s[0]>>>(d_dlstm1, d_gate1i, d_gate1o, d_dgate1o, d_lstm1, d_dsynH, d_dsynHi, d_dsynHo, alpha/Data[d].count);
+            Bprop1<<<Data[d].count, 256 ,0, s[1]>>>(d_dlstm1, d_gate1i, d_gate1o, d_in, d_dsyn1, d_dsyn1i, d_dsyn1o, alpha/Data[d].count);
+
+            err(cudaFree(d_in));
+            err(cudaFree(d_layer1i));
+            err(cudaFree(d_layer1o));
+            err(cudaFree(d_gate1i));
+            err(cudaFree(d_gate1o));
+            err(cudaFree(d_dgate1o));
+            err(cudaFree(d_dlayer1));
+            err(cudaFree(d_lstm1));
+            err(cudaFree(d_dlstm1));
+            err(cudaFree(d_out));
+
+            cudaDeviceSynchronize();
+         }
+
+         //printf("\n");
+
+         err(cudaMemcpy(d_syn1,  d_dsyn1, sizeof(float)*64*256,  cudaMemcpyDeviceToDevice));
+         err(cudaMemcpy(d_syn1i, d_dsyn1i,sizeof(float)*64*256,  cudaMemcpyDeviceToDevice));
+         err(cudaMemcpy(d_syn1o, d_dsyn1o,sizeof(float)*64*256,  cudaMemcpyDeviceToDevice));
+         err(cudaMemcpy(d_synH,  d_dsynH, sizeof(float)*256*256,  cudaMemcpyDeviceToDevice));
+         err(cudaMemcpy(d_synHi, d_dsynHi,sizeof(float)*256*256,  cudaMemcpyDeviceToDevice));
+         err(cudaMemcpy(d_synHo, d_dsynHo,sizeof(float)*256*256,  cudaMemcpyDeviceToDevice));
+         err(cudaMemcpy(d_syn2,  d_dsyn2, sizeof(float)*256*4,   cudaMemcpyDeviceToDevice));
+
+         err(cudaMemcpy(weights1,  d_dsyn1, sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weights1i, d_dsyn1i,sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weights1o, d_dsyn1o,sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weightsH,  d_dsynH, sizeof(float)*256*256,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weightsHi, d_dsynHi,sizeof(float)*256*256,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weightsHo, d_dsynHo,sizeof(float)*256*256,  cudaMemcpyDeviceToHost));
+         err(cudaMemcpy(weights2,  d_dsyn2, sizeof(float)*256*4,   cudaMemcpyDeviceToHost));
+
+         //int er = 0;
+         //for (int i=0; i < 64*256; ++i)
+         //{
+         //   if (isnan(weights1[i]))
+         //      er |= 1;
+         //   if (isnan(weights1i[i]))
+         //      er |= 2;
+         //   if (isnan(weights1o[i]))
+         //      er |= 4;
+         //}
+         //for (int i=0; i < 256*256; ++i)
+         //{
+         //   if (isnan(weightsH[i]))
+         //      er |= 8;
+         //   if (isnan(weightsHi[i]))
+         //      er |= 16;
+         //   if (isnan(weightsHo[i]))
+         //      er |= 32;
+         //}
+         //for (int i=0; i < 256*4; ++i)
+         //{
+         //   if (isnan(weights2[i]))
+         //      er |= 64;
+         //}
+
+         //if (er)
+         //   printf("%x\n", er);
+
+      }
 
       //cudaDeviceSynchronize();
-
-      //err(cudaMemcpy(d_syn1, weights1, sizeof(float)*64*256,  cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_syn1i,weights1i,sizeof(float)*64*256,  cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_syn1o,weights1o,sizeof(float)*64*256,  cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_syn2, weights2, sizeof(float)*256*4,   cudaMemcpyHostToDevice));
-      //err(cudaMemcpy(d_synH, weightsH, sizeof(float)*256*256, cudaMemcpyHostToDevice));
-
+      clock_t end_time = clock();
+      double training_time = (double)(end_time - start_time)/CLOCKS_PER_SEC;
+      printf("training time: %f\n", training_time);
    }
-   //err(cudaMemcpy(weights1, d_syn1, sizeof(float)*64*256,  cudaMemcpyDeviceToHost));
-   //err(cudaMemcpy(weights2, d_syn2, sizeof(float)*256*4,   cudaMemcpyDeviceToHost));
-   //err(cudaMemcpy(weightsH, d_synH, sizeof(float)*256*256, cudaMemcpyDeviceToHost));
-
-   //cudaDeviceSynchronize();
-   clock_t end_time = clock();
-   double training_time = (double)(end_time - start_time)/CLOCKS_PER_SEC;
-   printf("training time: %f\n", training_time);
 
    //test
    printf("testing\n");
@@ -543,56 +562,56 @@ int main(int argc, char** argv)
 
    for (int d=0; d < num_test; ++d)
    {
-         float* d_in;
-         //float* d_layer1;  //float* layer1;
-         float* d_layer1i; //float* layer1i;
-         float* d_layer1o; //float* layer1o;
-         float* d_gate1i;  //float* gate1i;
-         float* d_gate1o;  //float* gate1o;
-         float* d_dgate1o; //float* gate1o;
-         //float* d_dlayer1; //float* dlayer1;
-         //float* d_dlstm1;  //float* dlstm1;
-         float* d_lstm1;   //float* lstm1;
-         float* d_out;     //float* out;
+      float* d_in;
+      //float* d_layer1;  //float* layer1;
+      float* d_layer1i; //float* layer1i;
+      float* d_layer1o; //float* layer1o;
+      float* d_gate1i;  //float* gate1i;
+      float* d_gate1o;  //float* gate1o;
+      float* d_dgate1o; //float* gate1o;
+      //float* d_dlayer1; //float* dlayer1;
+      //float* d_dlstm1;  //float* dlstm1;
+      float* d_lstm1;   //float* lstm1;
+      float* d_out;     //float* out;
 
-         err(cudaMalloc((void**)&d_in,     Test[d].count*64*sizeof(float)));
-         //err(cudaMalloc((void**)&d_layer1,Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_layer1i,Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_layer1o,Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_gate1i, Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_gate1o, Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_dgate1o, Test[d].count*256*sizeof(float)));
-         //err(cudaMalloc((void**)&d_dlayer1,Test[d].count*256*sizeof(float)));
-         //err(cudaMalloc((void**)&d_dlstm1, Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_lstm1,  Test[d].count*256*sizeof(float)));
-         err(cudaMalloc((void**)&d_out,    Test[d].count*4*sizeof(float)));
+      err(cudaMalloc((void**)&d_in,     Test[d].count*64*sizeof(float)));
+      //err(cudaMalloc((void**)&d_layer1,Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_layer1i,Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_layer1o,Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_gate1i, Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_gate1o, Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_dgate1o,Test[d].count*256*sizeof(float)));
+      //err(cudaMalloc((void**)&d_dlayer1,Test[d].count*256*sizeof(float)));
+      //err(cudaMalloc((void**)&d_dlstm1, Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_lstm1,  Test[d].count*256*sizeof(float)));
+      err(cudaMalloc((void**)&d_out,    Test[d].count*4*sizeof(float)));
 
-         err(cudaMemset(d_layer1i, 0.0, Test[d].count*256*sizeof(float)));
-         err(cudaMemset(d_layer1o, 0.0, Test[d].count*256*sizeof(float)));
-         err(cudaMemset(d_gate1i,  0.0, Test[d].count*256*sizeof(float)));
-         err(cudaMemset(d_gate1o,  0.0, Test[d].count*256*sizeof(float)));
-         err(cudaMemset(d_dgate1o, 0.0, Test[d].count*256*sizeof(float)));
-         //err(cudaMemset(d_dlayer1, 0.0, Test[d].count*256*sizeof(float)));
-         //err(cudaMemset(d_dlstm1,  0.0, Test[d].count*256*sizeof(float)));
-         err(cudaMemset(d_lstm1,   0.0, Test[d].count*256*sizeof(float)));
-         err(cudaMemset(d_out,     0.0, Test[d].count*4  *sizeof(float)));
+      err(cudaMemset(d_layer1i, 0.0, Test[d].count*256*sizeof(float)));
+      err(cudaMemset(d_layer1o, 0.0, Test[d].count*256*sizeof(float)));
+      err(cudaMemset(d_gate1i,  0.0, Test[d].count*256*sizeof(float)));
+      err(cudaMemset(d_gate1o,  0.0, Test[d].count*256*sizeof(float)));
+      err(cudaMemset(d_dgate1o, 0.0, Test[d].count*256*sizeof(float)));
+      //err(cudaMemset(d_dlayer1, 0.0, Test[d].count*256*sizeof(float)));
+      //err(cudaMemset(d_dlstm1,  0.0, Test[d].count*256*sizeof(float)));
+      err(cudaMemset(d_lstm1,   0.0, Test[d].count*256*sizeof(float)));
+      err(cudaMemset(d_out,     0.0, Test[d].count*4  *sizeof(float)));
 
-         err(cudaMemcpy(d_in,    Test[d].Image, 64*Test[d].count*sizeof(float), cudaMemcpyHostToDevice));
-         err(cudaMemcpy(d_label, Test[d].Label, 4*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_in,    Test[d].Image, 64*Test[d].count*sizeof(float), cudaMemcpyHostToDevice));
+      err(cudaMemcpy(d_label, Test[d].Label, 4*sizeof(float), cudaMemcpyHostToDevice));
 
 // forward pass
-         Fprop1<<<Test[d].count, 256 ,0, s[0]>>>(d_in, d_syn1, d_layer1i);
-         Fprop1<<<Test[d].count, 256 ,0, s[1]>>>(d_in, d_syn1i, d_gate1i);
-         Fprop1<<<Test[d].count, 256 ,0, s[2]>>>(d_in, d_syn1o, d_gate1o);
-         LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, 0);
-         for (int i=1; i < Test[d].count; ++i)
-         {
-            FpropH<<<256, 256 ,0, s[0]>>>(d_layer1i, d_layer1o, d_synH,  i);
-            FpropH<<<256, 256 ,0, s[1]>>>(d_gate1i,  d_layer1o, d_synHi, i);
-            FpropH<<<256, 256 ,0, s[2]>>>(d_gate1o,  d_layer1o, d_synHo, i);
-            LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, i);
-         }
-         Fprop2<<<dim3(1, Test[d].count), dim3(4, 1)>>>(d_layer1o, d_syn2, d_out);
+      Fprop1<<<Test[d].count, 256 ,0, s[0]>>>(d_in, d_syn1, d_layer1i);
+      Fprop1<<<Test[d].count, 256 ,0, s[1]>>>(d_in, d_syn1i, d_gate1i);
+      Fprop1<<<Test[d].count, 256 ,0, s[2]>>>(d_in, d_syn1o, d_gate1o);
+      LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, 0);
+      for (int i=1; i < Test[d].count; ++i)
+      {
+         FpropH<<<256, 256 ,0, s[0]>>>(d_layer1i, d_layer1o, d_synH,  i);
+         FpropH<<<256, 256 ,0, s[1]>>>(d_gate1i,  d_layer1o, d_synHi, i);
+         FpropH<<<256, 256 ,0, s[2]>>>(d_gate1o,  d_layer1o, d_synHo, i);
+         LSTM1<<<1, 256>>>(d_layer1i, d_layer1o, d_lstm1, d_gate1i, d_gate1o, d_dgate1o, i);
+      }
+      Fprop2<<<dim3(1, Test[d].count), dim3(4, 1)>>>(d_layer1o, d_syn2, d_out);
 
       float* out = (float*)malloc(4*sizeof(float));
 
@@ -639,13 +658,6 @@ int main(int argc, char** argv)
          error += 1.0/num_test;
 
       free(out);
-      //err(cudaFree(d_in));
-      //err(cudaFree(d_layer1));
-      //err(cudaFree(d_layer1i));
-      //err(cudaFree(d_layer1o));
-      //err(cudaFree(d_lstm1));
-      //err(cudaFree(d_out));
-
    }
    //for (int i=0; i < 256; ++i)
    //{
@@ -707,16 +719,6 @@ int main(int argc, char** argv)
    printf("Accuracy: %f %%\n", (1.0-error)*100.0);
    printf("Error:    %f %%\n", numerical_error*100.0);
 
-   //clean up data arrays
-   //for (int i=0; i<Data.count; ++i)
-   //{
-   //   for (int j=0; j<28; ++j)
-   //   {
-   //      free(Data.Image[i][j]);
-   //   }
-   //   free(Data.Image[i]);
-   //   free(Data.Label[i]);
-   //}
    for (int d=0; d < num_data; ++d)
    {
       free(Data[d].Image);
@@ -727,20 +729,6 @@ int main(int argc, char** argv)
       free(Test[d].Image);
       free(Test[d].Label);
    }
-   //for (int i=0; i<Test.count; ++i)
-   //{
-   //   for (int j=0; j<Test.height; ++j)
-   //   {
-   //      free(Test.Image[i][j]);
-   //   }
-   //   free(Test.Image[i]);
-   //   free(Test.Label[i]);
-   //}
-   //for (int d=0; d < num_test; ++d)
-   //{
-   //   free(Test[d].Image);
-   //   free(Test[d].Label);
-   //}
 
    //err(cudaFree(d_in));
    err(cudaFree(d_label));
@@ -748,11 +736,25 @@ int main(int argc, char** argv)
    //err(cudaFree(d_layer1));
    //err(cudaFree(d_dlayer1));
    err(cudaFree(d_syn1));
+   err(cudaFree(d_syn1i));
+   err(cudaFree(d_syn1o));
    err(cudaFree(d_synH));
+   err(cudaFree(d_synHi));
+   err(cudaFree(d_synHo));
    err(cudaFree(d_syn2));
    err(cudaFree(d_dsyn1));
+   err(cudaFree(d_dsyn1i));
+   err(cudaFree(d_dsyn1o));
    err(cudaFree(d_dsynH));
+   err(cudaFree(d_dsynHi));
+   err(cudaFree(d_dsynHo));
    err(cudaFree(d_dsyn2));
+
+   if (!strcmp(argv[argc-1], "w"))
+   {
+      printf("writing to %s\n", argv[argc-2]);
+      pickle(weights1, weights1i, weights1o, weightsH, weightsHi, weightsHo, weights2, argv[argc-2]);
+   }
 
    return EXIT_SUCCESS;
 }
