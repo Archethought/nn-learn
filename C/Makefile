@@ -8,11 +8,11 @@ all:run srun Rnn lstm lstm_cpu
 neuralnet.o:neuralnet.c reader.c
 	gcc -std=c99 -c $(CFLG) $<
 NN_.o:NN_.cu reader_.c
-	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $<
+	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -D_FORCE_INLINES
 RNN.o:RNN.cu reader_ts.c
-	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -Xcompiler -fopenmp
+	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -D_FORCE_INLINES -Xcompiler -fopenmp
 LSTM.o:LSTM.cu reader_ts.c
-	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -Xcompiler -fopenmp
+	nvcc -ccbin gcc -m64 $(ARCH) -c -g -G -O3 $< -D_FORCE_INLINES -Xcompiler -fopenmp
 LSTM_CPU.o:LSTM_CPU.c reader_ts.c
 	gcc -std=c99 -c $(CFLG) $< -fopenmp
 
