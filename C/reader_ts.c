@@ -95,7 +95,7 @@ struct data read_known(const char* infile, const char* label)
 
    //printf("Info struct: \nframes:\t%d\nsamplerate:\t%d\nchannels:\t%d\nformat:\t%x\nsections:\t%d\nseekable:\t%d\n", (int)info.frames, info.samplerate, info.channels, info.format, info.sections, info.seekable);
 
-   int segment_length = info.samplerate/50;
+   int segment_length = info.samplerate*3;
    int fft_depth = 64;
    Result.depth = fft_depth;
    int samples_per_bin = 5*info.samplerate/22050;

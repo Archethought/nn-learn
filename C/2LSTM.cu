@@ -38,11 +38,11 @@ __global__ void Sigmoid(float* layer2)
    int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 256
    layer2[i] = sigmoid(layer2[i]);
 }
-//__global__ void Tanh(float* layer2)
-//{
-//   int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 256
-//   layer2[i] = tanh(layer2[i]);
-//}
+__global__ void Tanh(float* layer2)
+{
+   int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 256
+   layer2[i] = tanh(layer2[i]);
+}
 
 __global__ void Fprop1(const float* in, const float* syn2, float* layer2)
 {
@@ -53,7 +53,7 @@ __global__ void Fprop1(const float* in, const float* syn2, float* layer2)
    float x = 0.0;
    for (int j=0; j < 64; ++j)
       x += in[64*k + j] * syn2[j*256 + i];
-   layer2[256*k + i] = x;
+   layer2[256*k + i] = tanh(x);
 }
 __global__ void Fprop2(const bool* drop, const float* in, const float* syn2, float* layer2)
 {
@@ -65,7 +65,10 @@ __global__ void Fprop2(const bool* drop, const float* in, const float* syn2, flo
    {
       float x = 0.0;
       for (int j=0; j < 256; ++j)
-         x += in[256*k + j] * syn2[j*256 + i];
+      {
+         if (drop[j])
+            x += in[256*k + j] * syn2[j*256 + i];
+      }
       layer2[256*k + i] = x;
    }
 }
@@ -131,7 +134,8 @@ __global__ void Dcalc3(float* out, const float* label)
    int j = blockDim.y*blockIdx.y + threadIdx.y; //Data.count
 
    float x = label[i] - out[4*j + i];
-   out[4*j + i] = x * dsigmoid(out[4*j + i]);
+   //out[4*j + i] = x * dsigmoid(out[4*j + i]);
+   out[4*j + i] = x;
 }
 __global__ void Bprop3(const bool* drop, const float* out, const float* layer2, float* dsyn3, const float alpha)
 {
@@ -140,7 +144,7 @@ __global__ void Bprop3(const bool* drop, const float* out, const float* layer2, 
    int k = blockIdx.x;  //Data.count
 
    if (drop[i])
-      atomicAdd(&dsyn3[i*4 + j], out[4*k + j] * layer2[256*k + i] * alpha);
+      atomicAdd(&dsyn3[i*4 + j], out[4*k + j] * layer2[256*k + i] * -alpha);
 }
 __global__ void Dcalc2(const bool* drop, const float* out, float* dlayer2, const float* syn3)
 {
@@ -170,9 +174,9 @@ __global__ void BpropH2(const bool* drop, const float* dlstm2, const float* gate
    if (drop[i])
    {
       float d_o = tanh(lstm2[(offset-1)*256 + i]) * dgate2o[(offset-1)*256 + i];
-      atomicAdd(&dsynH2 [i*256 + j] , dlstm2[offset*256 + j] * d_o * alpha);
-      atomicAdd(&dsynH2i[i*256 + j] , gate2i[offset*256 + j] * d_o * alpha);
-      atomicAdd(&dsynH2o[i*256 + j] , gate2o[offset*256 + j] * d_o * alpha);
+      atomicAdd(&dsynH2 [i*256 + j] , dlstm2[offset*256 + j] * d_o * -alpha);
+      atomicAdd(&dsynH2i[i*256 + j] , gate2i[offset*256 + j] * d_o * -alpha);
+      atomicAdd(&dsynH2o[i*256 + j] , gate2o[offset*256 + j] * d_o * -alpha);
    }
 }
 __global__ void DcalcH2(const bool* drop, const float* layer2i, float* dlayer2, const float* synH2, const int offset)
@@ -199,10 +203,12 @@ __global__ void BLSTM2(const bool* drop, const float* layer2i, const float* laye
       float d_o = tanh(lstm2[256*j + i])   * dlayer2[j*256 + i];
       float d_i = tanh(layer2i[256*j + i]) * layer2o[j*256 + i];
       float d_f = 0.0;
-      if (j == 0)
-         d_f = lstm2[256*(j-1) + i]     * layer2o[j*256 + i];;
-      gate2o[256*j + i] = d_o * dsigmoid(sigmoid(gate2o[j*256 + i]));
-      gate2i[256*j + i] = (d_i - d_f) * dsigmoid(sigmoid(gate2i[256*j + i]));
+      if (j != 0)
+         d_f = lstm2[256*(j-1) + i] * layer2o[j*256 + i];;
+      //gate2o[256*j + i] = d_o * dsigmoid(sigmoid(gate2o[j*256 + i]));
+      //gate2i[256*j + i] = (d_i - d_f) * dsigmoid(sigmoid(gate2i[256*j + i]));
+      gate2o[256*j + i] = d_o;
+      gate2i[256*j + i] = (d_i - d_f);
    }
 }
 __global__ void BLSTMH2(const bool* drop, const float* layer2i, float* layer2o, const float* dlayer2, float* dlstm2, const float* lstm2, const float* gate2i, const float* gate2o, const int offset, const bool last)
@@ -215,10 +221,12 @@ __global__ void BLSTMH2(const bool* drop, const float* layer2i, float* layer2o, 
       float e_c = dlayer2[j*256 + i];
 
       float e_s = sigmoid(gate2o[256*j + i]) * dtanh(layer2o[256*j + i]) * e_c;
+      //float e_s = sigmoid(gate2o[256*j + i]) * min(e_c*e_c, 1.0) * e_c;
       if (!last)
          e_s += (1.0 - sigmoid(gate2i[256*(j+1) + i])) * layer2o[256*(j+1) + i];
       layer2o[256*j + i] = e_s;
       float d_c = sigmoid(gate2i[256*j + i]) * dtanh(layer2i[256*j + i]) * e_s;
+      //float d_c = sigmoid(gate2i[256*j + i]) * min(e_s*e_s, 1.0) * e_s;
       dlstm2 [256*j + i] = d_c;
    }
 }
@@ -233,11 +241,11 @@ __global__ void Bprop2(const bool* drop, const float* dlstm2, const float* gate2
       for (int i=0; i < 256; ++i)
       {
          if (dlstm2[k*256 + j] != 0.0)
-            atomicAdd(&dsyn2[i*256 + j]  , dlstm2[k*256 + j] * in[k*256 + i] * alpha);
+            atomicAdd(&dsyn2[i*256 + j]  , dlstm2[k*256 + j] * in[k*256 + i] * -alpha);
          if (gate2i[k*256 + j] != 0.0)
-            atomicAdd(&dsyn2i[i*256 + j] , gate2i[k*256 + j] * in[k*256 + i] * alpha);
+            atomicAdd(&dsyn2i[i*256 + j] , gate2i[k*256 + j] * in[k*256 + i] * -alpha);
          if (gate2o[k*256 + j] != 0.0)
-            atomicAdd(&dsyn2o[i*256 + j] , gate2o[k*256 + j] * in[k*256 + i] * alpha);
+            atomicAdd(&dsyn2o[i*256 + j] , gate2o[k*256 + j] * in[k*256 + i] * -alpha);
       }
    }
 }
@@ -252,7 +260,7 @@ __global__ void Dcalc1(const float* dlayer2, float* layer1, const float* syn2)
    {
       x += dlayer2[j*256 + k] * syn2[i*256 + k];
    }
-   layer1[j*256 + i] = x/2;
+   layer1[j*256 + i] = x;
 }
 __global__ void Bprop1(const float* layer1, const float* in, float* dsyn1, const float alpha)
 {
@@ -262,8 +270,7 @@ __global__ void Bprop1(const float* layer1, const float* in, float* dsyn1, const
 
    for (int i=0; i < 64; ++i)
    {
-      if (layer1[k*256 + j] != 0.0)
-         atomicAdd(&dsyn1[i*256 + j]  , layer1[k*256 + j] * in[k*64 + i] * alpha);
+      atomicAdd(&dsyn1[i*256 + j]  , layer1[k*256 + j] * in[k*64 + i] * -alpha);
    }
 }
 
@@ -295,6 +302,27 @@ void unpickle(float* syn2, float* syn2i, float* syn2o, float* synH2, float* synH
    er += fread(syn3, sizeof(float), 256*4, infile);
    printf("%d\n", er);
    fclose(infile);
+}
+
+void search(float* layer, int n)
+{
+   float min=INFINITY, max=0;
+   bool nans = false;
+   for (int i=0; i < n; ++i)
+   {
+      if (isnan(layer[i]))
+         nans = true;
+      else
+      {
+         if (abs(layer[i]) > abs(max))
+            max = layer[i];
+         if (abs(layer[i]) < abs(min) && abs(layer[i]) != 0.0)
+            min = layer[i];
+      }
+   } 
+   if (nans)
+      printf("\tnans present\n");
+   printf("\tmin: %f\n\tmax: %f\n", min, max);
 }
 
 
@@ -411,14 +439,16 @@ int main(int argc, char** argv)
       {
          for (int k=0; k < 256; ++k)
          {
-            weights1  [j*256 + k] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            float r = 1.0/sqrt(64);
+            weights1  [j*256 + k] = (float)rand()/RAND_MAX*2*r - r;
          }
       }
       for (int i=0; i < 256; ++i)
       {
          for (int j=0; j < 4; ++j)
          {
-            weights3[i*4 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            float r = 1.0/sqrt(256);
+            weights3[i*4 + j] = (float)rand()/RAND_MAX*2*r - r;
          }
       }
 
@@ -426,12 +456,13 @@ int main(int argc, char** argv)
       {
          for (int j=0; j < 256; ++j)
          {
-            weights2  [i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-            weights2i [i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-            weights2o [i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-            weightsH2 [i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-            weightsH2i[i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
-            weightsH2o[i*256 + j] = (float)rand()/(RAND_MAX/0.2) - 0.1;
+            float r = 1.0/sqrt(256);
+            weights2  [i*256 + j] = (float)rand()/RAND_MAX*2*r - r;
+            weights2i [i*256 + j] = (float)rand()/RAND_MAX*2*r - r;
+            weights2o [i*256 + j] = (float)rand()/RAND_MAX*2*r - r;
+            weightsH2 [i*256 + j] = (float)rand()/RAND_MAX*2*r - r;
+            weightsH2i[i*256 + j] = (float)rand()/RAND_MAX*2*r - r;
+            weightsH2o[i*256 + j] = (float)rand()/RAND_MAX*2*r - r;
          }
       }
 
@@ -456,7 +487,7 @@ int main(int argc, char** argv)
       err(cudaMemcpy(d_dsyn3, weights3, 4*256*sizeof(float),  cudaMemcpyHostToDevice));
 
       //train
-      float alpha = atof(argv[num_args-1]);
+      float alpha = atof(argv[num_args-1])/num_data;
       bool* dropout = (bool*)malloc(256*sizeof(bool));
       bool* d_drop;  err(cudaMalloc((void**)&d_drop, 256*sizeof(bool)));
       int iterations = atoi(argv[num_args-2]);
@@ -484,17 +515,16 @@ int main(int argc, char** argv)
             //printf("-\n");
             //printf("%d\t%f\n", Data[d].count, Data[d].Image[Data[d].count-1]);
             float* d_in;
-            float* d_layer1;
-            //float* layer1;
-            float* d_layer2i; //float* layer2i;
-            float* d_layer2o; //float* layer2o;
-            float* d_gate2i;  //float* gate2i;
-            float* d_gate2o;  //float* gate2o;
-            float* d_dgate2o; //float* gate2o;
-            float* d_dlayer2; //float* dlayer2;
-            float* d_dlstm2;  //float* dlstm2;
-            float* d_lstm2;   //float* lstm2;
-            float* d_out;     //float* out;
+            float* d_layer1;  float* layer1;
+            float* d_layer2i; float* layer2i;
+            float* d_layer2o; float* layer2o;
+            float* d_gate2i;  float* gate2i;
+            float* d_gate2o;  float* gate2o;
+            float* d_dgate2o; float* dgate2o;
+            float* d_dlayer2; float* dlayer2;
+            float* d_dlstm2;  float* dlstm2;
+            float* d_lstm2;   float* lstm2;
+            float* d_out;     float* out;
 
             err(cudaMalloc((void**)&d_in,     Data[d].count*64*sizeof(float)));
             err(cudaMalloc((void**)&d_layer1, Data[d].count*256*sizeof(float)));
@@ -507,14 +537,16 @@ int main(int argc, char** argv)
             err(cudaMalloc((void**)&d_dlstm2, Data[d].count*256*sizeof(float)));
             err(cudaMalloc((void**)&d_lstm2,  Data[d].count*256*sizeof(float)));
             err(cudaMalloc((void**)&d_out,    Data[d].count*4*sizeof(float)));
-            //layer2  = (float*)malloc(Data[d].count*256*sizeof(float));
-            //layer2i = (float*)malloc(Data[d].count*256*sizeof(float));
-            //layer2o = (float*)malloc(Data[d].count*256*sizeof(float));
-            //gate2i  = (float*)malloc(Data[d].count*256*sizeof(float));
-            //gate2o  = (float*)malloc(Data[d].count*256*sizeof(float));
-            //dlayer2 = (float*)malloc(Data[d].count*256*sizeof(float));
-            //lstm2   = (float*)malloc(Data[d].count*256*sizeof(float));
-            //out     = (float*)malloc(Data[d].count*4*sizeof(float));
+            layer1  = (float*)malloc(Data[d].count*256*sizeof(float));
+            layer2i = (float*)malloc(Data[d].count*256*sizeof(float));
+            layer2o = (float*)malloc(Data[d].count*256*sizeof(float));
+            gate2i  = (float*)malloc(Data[d].count*256*sizeof(float));
+            gate2o  = (float*)malloc(Data[d].count*256*sizeof(float));
+            dgate2o = (float*)malloc(Data[d].count*256*sizeof(float));
+            dlayer2 = (float*)malloc(Data[d].count*256*sizeof(float));
+            dlstm2  = (float*)malloc(Data[d].count*256*sizeof(float));
+            lstm2   = (float*)malloc(Data[d].count*256*sizeof(float));
+            out     = (float*)malloc(Data[d].count*4*sizeof(float));
 
             //for (int i=0; i < Data[d].count*256; ++i)
             //   layer2[i] = 0;
@@ -536,11 +568,17 @@ int main(int argc, char** argv)
             err(cudaMemcpy(d_in,    Data[d].Image, 64*Data[d].count*sizeof(float), cudaMemcpyHostToDevice));
             err(cudaMemcpy(d_label, Data[d].Label, 4*sizeof(float), cudaMemcpyHostToDevice));
 
+            //printf("input:\n");
+            //search(Data[d].Image, Data[d].count*64);
+
       // forward pass
             Fprop1<<<Data[d].count, 256>>>(d_in, d_syn1, d_layer1);
             Fprop2<<<Data[d].count, 256 ,0, s[0]>>>(d_drop, d_layer1, d_syn2, d_layer2i);
             Fprop2<<<Data[d].count, 256 ,0, s[1]>>>(d_drop, d_layer1, d_syn2i, d_gate2i);
             Fprop2<<<Data[d].count, 256 ,0, s[2]>>>(d_drop, d_layer1, d_syn2o, d_gate2o);
+            err(cudaMemcpy(layer2i,d_layer2i,Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            printf("layer2i:\n");
+            search(layer2i,Data[d].count*256);
             LSTM2<<<1, 256>>>(d_drop, d_layer2i, d_layer2o, d_lstm2, d_gate2i, d_gate2o, d_dgate2o, 0);
             for (int i=1; i < Data[d].count; ++i)
             {
@@ -550,6 +588,39 @@ int main(int argc, char** argv)
                LSTM2<<<1, 256>>>(d_drop, d_layer2i, d_layer2o, d_lstm2, d_gate2i, d_gate2o, d_dgate2o, i);
             }
             Fprop3<<<dim3(1, Data[d].count), dim3(4, 1)>>>(d_drop, d_layer2o, d_syn3, d_out);
+
+            err(cudaMemcpy(d_dsyn3, weights3, 4*256*sizeof(float),  cudaMemcpyHostToDevice));
+            err(cudaMemcpy(layer1, d_layer1, Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(layer2i,d_layer2i,Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(layer2o,d_layer2o,Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(gate2i, d_gate2i, Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(gate2o, d_gate2o, Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(dgate2o,d_dgate2o,Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(dlayer2,d_dlayer2,Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(dlstm2, d_dlstm2, Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(lstm2,  d_lstm2,  Data[d].count*256*sizeof(float), cudaMemcpyDeviceToHost));
+            err(cudaMemcpy(out,    d_out,    Data[d].count*4*sizeof(float)  , cudaMemcpyDeviceToHost));
+
+            //printf("layer1:\n");
+            //search(layer1, Data[d].count*256);
+            //printf("layer2i:\n");
+            //search(layer2i,Data[d].count*256);
+            //printf("layer2o:\n");
+            //search(layer2o,Data[d].count*256);
+            //printf("gate2i:\n");
+            //search(gate2i, Data[d].count*256);
+            //printf("gate2o:\n");
+            //search(gate2o, Data[d].count*256);
+            //printf("dgate2o:\n");
+            //search(dgate2o,Data[d].count*256);
+            //printf("dlayer2:\n");
+            //search(dlayer2,Data[d].count*256);
+            //printf("dlstm2:\n");
+            //search(dlstm2, Data[d].count*256);
+            //printf("lstm2:\n");
+            //search(lstm2,  Data[d].count*256);
+            //printf("out:\n");
+            //search(out,    Data[d].count*4);
 
       // backward pass
             Dcalc3<<<dim3(1, Data[d].count), dim3(4, 1)>>>(d_out, d_label);
