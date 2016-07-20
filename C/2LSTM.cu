@@ -18,7 +18,21 @@ __device__ float dsigmoid(float x)
 {
    return 4.0*x*(1.0-x);
 }
-//__device__ float tanh_(float x)
+__device__ float tanh_(float x)
+{
+   // e**2x - 1
+   // ---------
+   // e**2x + 1
+   return max(0.0,x);
+}
+__device__ float dtanh_(float x)
+{
+   if (x > 0.0)
+      return 1.0;
+   else
+      return 0.0;
+}
+//__device__ float tanh(float x)
 //{
 //   // e**2x - 1
 //   // ---------
@@ -26,10 +40,10 @@ __device__ float dsigmoid(float x)
 //   float exp2x =    exp(2.0*x);
 //   return (exp2x - 1.0)/(exp2x + 1.0);
 //}
-__device__ float dtanh(float x)
-{
-   return 1.0 - x*x;
-}
+//__device__ float dtanh(float x)
+//{
+//   return 1.0 - x*x;
+//}
 __global__ void Sigmoid(float* layer2)
 {
    int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 256
@@ -38,7 +52,7 @@ __global__ void Sigmoid(float* layer2)
 __global__ void Tanh(float* layer2)
 {
    int i = blockDim.x*blockIdx.x + threadIdx.x; //Data.count * 256
-   layer2[i] = tanh(layer2[i]);
+   layer2[i] = tanh_(layer2[i]);
 }
 
 __global__ void Fprop1(const float* in, const float* syn1, float* layer2)
@@ -50,7 +64,7 @@ __global__ void Fprop1(const float* in, const float* syn1, float* layer2)
    float x = 0.0;
    for (int j=0; j < 64; ++j)
       x += in[64*k + j] * syn1[j*256 + i];
-   layer2[256*k + i] = tanh(x);
+   layer2[256*k + i] = tanh_(x);
 }
 __global__ void Fprop2(const bool* drop, const float* layer1, const float* syn2, float* layer2)
 {
@@ -79,13 +93,13 @@ __global__ void LSTM2(const bool* drop, const float* layer2i, float* layer2o, fl
       float g_o = sigmoid(gate2o[256*offset + i]);
       dgate2o[256*offset + i] = g_o;
 
-      float i_c = g_i * tanh(layer2i[256*offset + i]);
+      float i_c = g_i * tanh_(layer2i[256*offset + i]);
       float i_p = 0.0;
       if (offset > 0)
          i_p = g_f * lstm2[256*(offset-1) + i];
       float sum = i_p + i_c;
       lstm2[256*offset + i] = sum;
-      layer2o[256*offset + i] = tanh(sum) * g_o;
+      layer2o[256*offset + i] = tanh_(sum) * g_o;
    }
 }
 __global__ void FpropH2(const bool* drop, float* layer2, const float* layer2o, const float* synH2, const int offset)
@@ -112,7 +126,7 @@ __global__ void Fprop3(const bool* drop, const float* layer2, const float* syn3,
 #pragma unroll
    for (int k=0; k < 256; ++k)
    {
-      if (drop[i])
+      if (drop[k])
          x += layer2[256*j + k] * syn3[k*4 + i];
    }
    out[j*4 + i] = sigmoid(x);
@@ -130,8 +144,8 @@ __global__ void Dcalc3(float* out, const float* label)
    int j = blockDim.y*blockIdx.y + threadIdx.y; //Data.count
 
    float x = label[i] - out[4*j + i];
-   out[4*j + i] = x * dsigmoid(out[4*j + i]);
-   //out[4*j + i] = x;
+   //out[4*j + i] = x * dsigmoid(out[4*j + i]);
+   out[4*j + i] = x * abs(x);
 }
 __global__ void Bprop3(const bool* drop, const float* out, const float* layer2, float* dsyn3, const float alpha)
 {
@@ -162,6 +176,7 @@ __global__ void Dcalc2(const bool* drop, const float* out, float* dlayer2, const
       //dlayer2[j*256 + i] = (x+y)/2/4;
    }
 }
+//LSTM backprop functions split up based on threadcounts
 __global__ void BpropH2(const bool* drop, const float* dlstm2, const float* gate2i, const float* gate2o, const float* dgate2o, const float* lstm2, float* dsynH2, float* dsynH2i, float* dsynH2o, const float alpha)
 {
    int i = threadIdx.x; //256
@@ -170,7 +185,7 @@ __global__ void BpropH2(const bool* drop, const float* dlstm2, const float* gate
 
    if (drop[i])
    {
-      float d_o = tanh(lstm2[(offset-1)*256 + i]) * dgate2o[(offset-1)*256 + i];
+      float d_o = tanh_(lstm2[(offset-1)*256 + i]) * dgate2o[(offset-1)*256 + i];
       atomicAdd(&dsynH2 [i*256 + j] , dlstm2[offset*256 + j] * d_o * alpha);
       atomicAdd(&dsynH2i[i*256 + j] , gate2i[offset*256 + j] * d_o * alpha);
       atomicAdd(&dsynH2o[i*256 + j] , gate2o[offset*256 + j] * d_o * alpha);
@@ -197,8 +212,8 @@ __global__ void BLSTM2(const bool* drop, const float* layer2i, const float* laye
 
    if (drop[i])
    {
-      float d_o = tanh(lstm2[256*j + i])   * dlayer2[j*256 + i];
-      float d_i = tanh(layer2i[256*j + i]) * layer2o[j*256 + i];
+      float d_o = tanh_(lstm2[256*j + i])   * dlayer2[j*256 + i];
+      float d_i = tanh_(layer2i[256*j + i]) * layer2o[j*256 + i];
       float d_f = 0.0;
       if (j != 0)
          d_f = lstm2[256*(j-1) + i] * layer2o[j*256 + i];;
@@ -208,7 +223,7 @@ __global__ void BLSTM2(const bool* drop, const float* layer2i, const float* laye
       //gate2i[256*j + i] = (d_i - d_f);
    }
 }
-__global__ void BLSTMH2(const bool* drop, const float* layer2i, float* layer2o, const float* dlayer2, float* dlstm2, const float* lstm2, const float* gate2i, const float* gate2o, const int offset, const bool last)
+__global__ void BLSTMH2(const bool* drop, float* layer2i, float* layer2o, const float* dlayer2, float* dlstm2, const float* lstm2, const float* gate2i, const float* gate2o, const int offset, const bool last)
 {
    int i = threadIdx.x; //256
    int j = offset;
@@ -217,14 +232,18 @@ __global__ void BLSTMH2(const bool* drop, const float* layer2i, float* layer2o, 
    {
       float e_c = dlayer2[j*256 + i];
 
-      float e_s = sigmoid(gate2o[256*j + i]) * dtanh(layer2o[256*j + i]) * e_c;
+      // see equation 4.13, except using df/dy instead of df/dx in dtanh()
+      float e_s = sigmoid(gate2o[256*j + i]) * dtanh_(layer2o[256*j + i]) * e_c;
       //float e_s = sigmoid(gate2o[256*j + i]) * min(e_c*e_c, 1.0) * e_c;
       if (!last)
          e_s += (1.0 - sigmoid(gate2i[256*(j+1) + i])) * layer2o[256*(j+1) + i];
-      layer2o[256*j + i] = e_s/256;
-      float d_c = sigmoid(gate2i[256*j + i]) * dtanh(layer2i[256*j + i]) * e_s;
+      layer2o[256*j + i] = e_s;
+      // df/dy: have to apply activation function to get y
+      float d_i = sigmoid(gate2i[256*j + i]) * dtanh_(tanh_(layer2i[256*j + i])) * e_s;
+      float d_c = sigmoid(gate2i[256*j + i]) * dtanh_(lstm2[256*j + i]) * e_s;
       //float d_c = sigmoid(gate2i[256*j + i]) * min(e_s*e_s, 1.0) * e_s;
-      dlstm2 [256*j + i] = d_c/256;
+      layer2i[256*j + i] = d_i;   // to be backpropagated through synH
+      dlstm2 [256*j + i] = d_c;   // to be backpropagated through lstm cellstate
    }
 }
 __global__ void Bprop2(const bool* drop, const float* dlstm2, const float* gate2i, const float* gate2o, const float* layer1, float* dsyn2, float* dsyn2i, float* dsyn2o, const float alpha)
@@ -257,7 +276,7 @@ __global__ void Dcalc1(const float* dlayer2, float* layer1, const float* syn2)
    {
       x += dlayer2[j*256 + k] * syn2[i*256 + k];
    }
-   layer1[j*256 + i] = x/256 * dtanh(layer1[j*256 + i]);
+   layer1[j*256 + i] = x/256 * dtanh_(layer1[j*256 + i]);
 }
 __global__ void Bprop1(const float* layer1, const float* in, float* dsyn1, const float alpha)
 {
